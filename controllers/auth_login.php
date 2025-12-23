@@ -1,0 +1,44 @@
+<?php
+// controllers/auth_login.php
+session_start();
+
+// SỬA ĐƯỜNG DẪN: Lùi 1 cấp ra khỏi controllers -> vào config
+require '../config/db_connect.php';
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $role = $_POST['role'];
+    $username = $_POST['username'];
+    $password = $_POST['password'];
+
+    $table = ''; $col_user = ''; $col_id = ''; $redirect = '';
+
+    switch ($role) {
+        case 'admin':
+            $table = 'quantrivien'; $col_user = 'ten_dang_nhap'; $col_id = 'id_quantrivien'; 
+            $redirect = '../views/admin.php'; 
+            break;
+        case 'doctor':
+            $table = 'bacsi'; $col_user = 'sdt'; $col_id = 'id_bacsi'; 
+            $redirect = '../views/bacsi.php';
+            break;
+        case 'patient':
+            $table = 'benhnhan'; $col_user = 'sdt'; $col_id = 'id_benhnhan'; 
+            $redirect = '../views/khachhang.php';
+            break;
+        default: die("Vai trò không hợp lệ");
+    }
+
+    $stmt = $conn->prepare("SELECT * FROM $table WHERE $col_user = ?");
+    $stmt->execute([$username]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($user && password_verify($password, $user['mat_khau_hash'])) {
+        $_SESSION['user_id'] = $user[$col_id];
+        $_SESSION['role'] = $role;
+        $_SESSION['fullname'] = $user['ten_day_du'];
+        header("Location: $redirect");
+    } else {
+        echo "<script>alert('Sai thông tin hoặc mật khẩu!'); window.location.href='../views/dangnhap.php';</script>";
+    }
+}
+?>
