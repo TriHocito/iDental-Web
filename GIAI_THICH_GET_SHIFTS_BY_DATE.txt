@@ -1,0 +1,423 @@
+================================================================================
+            GIẢI THÍCH TỪNG DÒNG CODE: get_shifts_by_date.php
+================================================================================
+
+📄 FILE: controllers/get_shifts_by_date.php
+🎯 MỤC ĐÍCH: API kiểm tra lịch làm việc của bác sĩ theo ngày
+📥 INPUT: GET ?id={id_bacsi}&date={YYYY-MM-DD}
+📤 OUTPUT: JSON {status, shifts[], phone, day_name}
+
+================================================================================
+                        GIẢI THÍCH CHI TIẾT TỪNG DÒNG
+================================================================================
+
+DÒNG 1-2: KHỞI TẠO
+────────────────────────────────────────────────────────────────────────
+<?php
+require '../config/db_connect.php';
+
+→ Dòng 1: Mở tag PHP để viết code PHP
+→ Dòng 2: Include file kết nối database
+          • File db_connect.php chứa biến $conn (PDO connection)
+          • Từ folder controllers/ lùi 1 cấp (..) vào folder config/
+
+
+DÒNG 4: SET HEADER JSON
+────────────────────────────────────────────────────────────────────────
+header('Content-Type: application/json');
+
+→ Báo cho browser biết response sẽ trả về dạng JSON
+→ Quan trọng để JavaScript có thể parse JSON chính xác
+→ Nếu thiếu dòng này, browser có thể hiểu nhầm là text/html
+
+
+DÒNG 6: KIỂM TRA THAM SỐ ĐẦU VÀO
+────────────────────────────────────────────────────────────────────────
+if (isset($_GET['id']) && isset($_GET['date'])) {
+
+→ Kiểm tra 2 tham số bắt buộc có tồn tại không:
+  • $_GET['id']: ID của bác sĩ (VD: ?id=2)
+  • $_GET['date']: Ngày cần check (VD: &date=2025-12-25)
+→ Nếu thiếu 1 trong 2 → Code trong {} KHÔNG chạy, file kết thúc
+
+
+DÒNG 7-8: LẤY GIÁ TRỊ THAM SỐ
+────────────────────────────────────────────────────────────────────────
+    $id_bacsi = $_GET['id'];
+    $date = $_GET['date']; // YYYY-MM-DD
+
+→ Dòng 7: Lưu ID bác sĩ vào biến $id_bacsi (VD: 2, 3, 4)
+→ Dòng 8: Lưu ngày vào biến $date (Format: 2025-12-25)
+          • Comment ghi chú format để dev nhớ
+
+
+DÒNG 10: BẮT ĐẦU BLOCK TRY-CATCH
+────────────────────────────────────────────────────────────────────────
+    try {
+
+→ Bắt đầu khối try để bắt lỗi (error handling)
+→ Nếu có lỗi SQL hoặc lỗi khác → Nhảy xuống block catch
+
+
+DÒNG 11-14: LẤY SỐ ĐIỆN THOẠI BÁC SĨ
+────────────────────────────────────────────────────────────────────────
+        // 1. Lấy thông tin cơ bản
+        $stmt_info = $conn->prepare("SELECT sdt FROM bacsi WHERE id_bacsi = ?");
+        $stmt_info->execute([$id_bacsi]);
+        $doc = $stmt_info->fetch(PDO::FETCH_ASSOC);
+
+→ Dòng 11: Comment mô tả logic
+→ Dòng 12: Chuẩn bị câu SQL với Prepared Statement
+           • ? là placeholder để tránh SQL Injection
+           • Lấy cột 'sdt' (số điện thoại) từ bảng 'bacsi'
+→ Dòng 13: Thực thi query, truyền $id_bacsi vào placeholder
+           • [$id_bacsi] tự động bind vào vị trí ?
+→ Dòng 14: Lấy kết quả dưới dạng array associative
+           • $doc = ['sdt' => '0912345678']
+
+
+DÒNG 15: XỬ LÝ TRƯỜNG HỢP KHÔNG TÌM THẤY
+────────────────────────────────────────────────────────────────────────
+        $phone = $doc['sdt'] ?? 'Tổng đài';
+
+→ Toán tử ?? (Null Coalescing Operator):
+  • Nếu $doc['sdt'] TỒN TẠI và KHÔNG NULL → $phone = giá trị đó
+  • Nếu $doc['sdt'] KHÔNG TỒN TẠI hoặc NULL → $phone = 'Tổng đài'
+→ Đảm bảo luôn có giá trị, tránh lỗi undefined index
+
+
+DÒNG 17: TÍNH NGÀY TRONG TUẦN
+────────────────────────────────────────────────────────────────────────
+        $day_of_week = date('N', strtotime($date));
+
+→ strtotime($date): Chuyển string ngày thành Unix timestamp
+  • VD: "2025-12-25" → 1735084800
+→ date('N', ...): Lấy số thứ trong tuần (1-7)
+  • 1 = Thứ 2, 2 = Thứ 3, ..., 7 = Chủ Nhật
+→ Kết quả: $day_of_week = 4 (nếu là Thứ 5)
+
+
+DÒNG 19-21: MAP SỐ THÀNH TÊN THỨ
+────────────────────────────────────────────────────────────────────────
+        // Hàm hỗ trợ lấy tên thứ
+        $days_map = [1=>'Thứ 2', 2=>'Thứ 3', 3=>'Thứ 4', 4=>'Thứ 5', 
+                     5=>'Thứ 6', 6=>'Thứ 7', 7=>'Chủ Nhật'];
+        $day_name = $days_map[$day_of_week] ?? '';
+
+→ Dòng 20: Tạo array ánh xạ số → tên
+           • Key = số (1-7), Value = tên thứ
+→ Dòng 21: Lấy tên thứ từ array
+           • VD: $day_of_week = 4 → $day_name = 'Thứ 5'
+           • Nếu không tìm thấy → $day_name = '' (chuỗi rỗng)
+
+
+DÒNG 23-25: CHUẨN BỊ QUERY KIỂM TRA NGHỈ PHÉP
+────────────────────────────────────────────────────────────────────────
+        // 2. [LOGIC 1] Kiểm tra ngày nghỉ (Ưu tiên cao nhất)
+        $sql_leave = "SELECT ca_nghi FROM yeucaunghi 
+                      WHERE id_bacsi = ? AND ngay_nghi = ? AND trang_thai = 'da_duyet'";
+
+→ Dòng 23: Comment logic ưu tiên
+→ Dòng 24-25: Câu SQL kiểm tra nghỉ phép
+  • Bảng: yeucaunghi (yêu cầu nghỉ)
+  • Điều kiện:
+    1. id_bacsi = ? (Bác sĩ cụ thể)
+    2. ngay_nghi = ? (Đúng ngày đang check)
+    3. trang_thai = 'da_duyet' (Đã được admin duyệt)
+  • Nếu tìm thấy → Bác sĩ NGHỈ ngày này
+
+
+DÒNG 26-27: THỰC THI QUERY NGHỈ PHÉP
+────────────────────────────────────────────────────────────────────────
+        $stmt_leave = $conn->prepare($sql_leave);
+        $stmt_leave->execute([$id_bacsi, $date]);
+
+→ Dòng 26: Chuẩn bị câu SQL (2 placeholder ?)
+→ Dòng 27: Thực thi với 2 tham số:
+  • $id_bacsi vào ? thứ nhất
+  • $date vào ? thứ hai
+
+
+DÒNG 29-35: XỬ LÝ NẾU BÁC SĨ NGHỈ
+────────────────────────────────────────────────────────────────────────
+        if ($stmt_leave->rowCount() > 0) {
+            echo json_encode([
+                'status' => 'on_leave',
+                'phone' => $phone,
+                'day_name' => $day_name
+            ]);
+            exit;
+        }
+
+→ Dòng 29: Kiểm tra số dòng trả về
+  • rowCount() > 0 → CÓ bản ghi → Bác sĩ NGHỈ
+→ Dòng 30-34: Trả về JSON:
+  • 'status' => 'on_leave': Trạng thái nghỉ phép
+  • 'phone' => $phone: SĐT bác sĩ (hoặc 'Tổng đài')
+  • 'day_name' => $day_name: Tên thứ (VD: 'Thứ 5')
+→ Dòng 35: exit; → Dừng script, KHÔNG chạy code phía dưới
+
+
+DÒNG 37-42: CHUẨN BỊ QUERY LỊCH LÀM VIỆC
+────────────────────────────────────────────────────────────────────────
+        // 3. [LOGIC 2] Kiểm tra ca làm việc
+        // Chỉ lấy lịch của đúng ngày đó (ngay_hieu_luc = ?)
+        $sql_schedule = "SELECT DISTINCT gio_bat_dau 
+                         FROM lichlamviec 
+                         WHERE id_bacsi = ? 
+                         AND ngay_hieu_luc = ? 
+                         ORDER BY gio_bat_dau ASC";
+
+→ Dòng 37-38: Comment logic thứ 2
+→ Dòng 39-42: Câu SQL lấy lịch làm việc
+  • SELECT DISTINCT gio_bat_dau: Lấy giờ bắt đầu, loại bỏ trùng
+  • FROM lichlamviec: Từ bảng lịch làm việc
+  • WHERE:
+    - id_bacsi = ? (Bác sĩ cụ thể)
+    - ngay_hieu_luc = ? (Đúng ngày đang check)
+  • ORDER BY gio_bat_dau ASC: Sắp xếp theo giờ tăng dần
+    (08:00 trước, 13:00 sau)
+
+
+DÒNG 44-46: THỰC THI QUERY LỊCH LÀM VIỆC
+────────────────────────────────────────────────────────────────────────
+        $stmt = $conn->prepare($sql_schedule);
+        $stmt->execute([$id_bacsi, $date]);
+        $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+→ Dòng 44: Chuẩn bị câu SQL
+→ Dòng 45: Thực thi với 2 tham số
+→ Dòng 46: Lấy TẤT CẢ kết quả dưới dạng array
+  • VD: $shifts = [
+      ['gio_bat_dau' => '08:00:00'],
+      ['gio_bat_dau' => '13:00:00']
+    ]
+  • Nếu không có → $shifts = []
+
+
+DÒNG 48: KHỞI TẠO MẢNG KẾT QUẢ
+────────────────────────────────────────────────────────────────────────
+        $available_shifts = [];
+
+→ Tạo mảng rỗng để chứa danh sách ca làm việc
+→ Sẽ được fill trong vòng lặp bên dưới
+
+
+DÒNG 49-60: XỬ LÝ DỮ LIỆU CA LÀM VIỆC
+────────────────────────────────────────────────────────────────────────
+        if (!empty($shifts)) {
+            foreach ($shifts as $sch) {
+                $hour = date('H', strtotime($sch['gio_bat_dau']));
+                $shift_code = ($hour < 12) ? 'Sang' : 'Chieu';
+                $shift_label = ($hour < 12) ? 'Sáng (08:00 - 12:00)' : 'Chiều (13:00 - 17:00)';
+                
+                $available_shifts[] = [
+                    'value' => $shift_code,
+                    'label' => $shift_label
+                ];
+            }
+        }
+
+→ Dòng 49: Kiểm tra mảng $shifts có dữ liệu không
+  • !empty($shifts) → TRUE nếu có ít nhất 1 ca
+→ Dòng 50: Lặp qua từng ca trong $shifts
+  • $sch = ['gio_bat_dau' => '08:00:00']
+→ Dòng 51: Lấy giờ từ time
+  • strtotime('08:00:00') → timestamp
+  • date('H', ...) → '08' (chỉ lấy giờ)
+→ Dòng 52: Xác định ca Sáng hay Chiều
+  • Ternary operator: (điều kiện) ? giá trị_nếu_đúng : giá trị_nếu_sai
+  • Nếu giờ < 12 → 'Sang'
+  • Nếu giờ >= 12 → 'Chieu'
+→ Dòng 53: Tạo label hiển thị cho user
+  • Sáng: 'Sáng (08:00 - 12:00)'
+  • Chiều: 'Chiều (13:00 - 17:00)'
+→ Dòng 55-58: Thêm vào mảng kết quả
+  • [] syntax: Thêm phần tử mới vào cuối array
+  • Mỗi phần tử là 1 array con với 2 key:
+    - 'value': Giá trị gửi lên server ('Sang'/'Chieu')
+    - 'label': Text hiển thị cho user
+
+
+DÒNG 62-79: TRẢ VỀ KẾT QUẢ
+────────────────────────────────────────────────────────────────────────
+        // 4. Trả kết quả
+        if (count($available_shifts) > 0) {
+            // Có ca làm
+            echo json_encode([
+                'status' => 'has_schedule',
+                'shifts' => $available_shifts,
+                'phone'  => $phone,
+                'day_name' => $day_name 
+            ]);
+        } else {
+            // Không có ca
+            echo json_encode([
+                'status' => 'no_schedule',
+                'phone'  => $phone,
+                'day_name' => $day_name
+            ]);
+        }
+
+→ Dòng 63: Kiểm tra mảng ca có dữ liệu không
+  • count($available_shifts) > 0 → CÓ ít nhất 1 ca
+→ Dòng 64-70: TH CÓ CA LÀM VIỆC
+  • json_encode(): Chuyển array PHP → JSON string
+  • 'status' => 'has_schedule': Trạng thái có lịch
+  • 'shifts' => $available_shifts: Mảng các ca
+    VD: [
+      {"value":"Sang","label":"Sáng (08:00 - 12:00)"},
+      {"value":"Chieu","label":"Chiều (13:00 - 17:00)"}
+    ]
+  • 'phone': SĐT bác sĩ
+  • 'day_name': Tên thứ
+→ Dòng 71-77: TH KHÔNG CÓ CA
+  • 'status' => 'no_schedule': Không có lịch làm việc
+  • Không có key 'shifts' (hoặc có thể thêm shifts: [])
+
+
+DÒNG 79-81: BẮT LỖI (CATCH BLOCK)
+────────────────────────────────────────────────────────────────────────
+    } catch (Exception $e) {
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+    }
+
+→ Dòng 79: Nếu có lỗi trong block try, code nhảy vào đây
+  • $e là object Exception chứa thông tin lỗi
+→ Dòng 80: Trả về JSON lỗi
+  • 'status' => 'error': Trạng thái lỗi
+  • 'message' => $e->getMessage(): Chi tiết lỗi
+    VD: "SQLSTATE[42S02]: Base table or view not found"
+
+
+DÒNG 82-83: ĐÓNG IF & PHP TAG
+────────────────────────────────────────────────────────────────────────
+}
+?>
+
+→ Dòng 82: Đóng if (isset($_GET['id']) && isset($_GET['date']))
+  • Nếu thiếu tham số → Code bên trong KHÔNG chạy
+  • File trả về rỗng (không có output)
+→ Dòng 83: Đóng tag PHP
+
+
+================================================================================
+                        TÓM TẮT LUỒNG LOGIC
+================================================================================
+
+1️⃣ Kiểm tra tham số đầu vào (id, date)
+   └─ Thiếu → Không làm gì, kết thúc
+
+2️⃣ Lấy thông tin bác sĩ (SĐT)
+   └─ Query bảng 'bacsi'
+
+3️⃣ Kiểm tra nghỉ phép (Ưu tiên cao)
+   └─ Query bảng 'yeucaunghi'
+   └─ Có nghỉ? → Return {"status":"on_leave"} → EXIT
+
+4️⃣ Kiểm tra lịch làm việc (Nếu không nghỉ)
+   └─ Query bảng 'lichlamviec'
+   └─ Lấy tất cả ca làm trong ngày
+
+5️⃣ Xử lý dữ liệu ca
+   └─ Convert time → Xác định Sáng/Chiều
+   └─ Tạo array {value, label}
+
+6️⃣ Trả kết quả JSON
+   ├─ Có ca → {"status":"has_schedule", "shifts":[...]}
+   └─ Không ca → {"status":"no_schedule"}
+
+7️⃣ Bắt lỗi (nếu có)
+   └─ Return {"status":"error", "message":"..."}
+
+
+================================================================================
+                        VÍ DỤ THỰC TẾ
+================================================================================
+
+REQUEST:
+────────────────────────────────────────────────────────────────────────
+GET /controllers/get_shifts_by_date.php?id=2&date=2025-12-25
+
+
+XỬ LÝ:
+────────────────────────────────────────────────────────────────────────
+• $id_bacsi = 2
+• $date = '2025-12-25'
+• $day_of_week = 4 (Thứ 5)
+• $day_name = 'Thứ 5'
+
+Check nghỉ phép:
+  SELECT * FROM yeucaunghi 
+  WHERE id_bacsi=2 AND ngay_nghi='2025-12-25' AND trang_thai='da_duyet'
+  → Kết quả: 0 dòng (Không nghỉ)
+
+Check lịch làm việc:
+  SELECT gio_bat_dau FROM lichlamviec
+  WHERE id_bacsi=2 AND ngay_hieu_luc='2025-12-25'
+  → Kết quả: ['08:00:00', '13:00:00']
+
+Xử lý:
+  • '08:00:00' → hour=08 → 'Sang' → 'Sáng (08:00 - 12:00)'
+  • '13:00:00' → hour=13 → 'Chieu' → 'Chiều (13:00 - 17:00)'
+
+
+RESPONSE JSON:
+────────────────────────────────────────────────────────────────────────
+{
+  "status": "has_schedule",
+  "shifts": [
+    {
+      "value": "Sang",
+      "label": "Sáng (08:00 - 12:00)"
+    },
+    {
+      "value": "Chieu",
+      "label": "Chiều (13:00 - 17:00)"
+    }
+  ],
+  "phone": "0912345678",
+  "day_name": "Thứ 5"
+}
+
+
+================================================================================
+                        CÁC TRƯỜNG HỢP ĐẶC BIỆT
+================================================================================
+
+📌 TH1: Thiếu tham số (id hoặc date)
+   → Code trong if KHÔNG chạy
+   → Response: (Rỗng, không có gì)
+
+📌 TH2: Bác sĩ không tồn tại
+   → $doc = false
+   → $phone = 'Tổng đài' (nhờ toán tử ??)
+
+📌 TH3: Bác sĩ nghỉ phép
+   → rowCount() > 0
+   → Return {"status":"on_leave"}
+   → exit; (Không chạy code check lịch làm việc)
+
+📌 TH4: Không có lịch làm việc
+   → $shifts = []
+   → $available_shifts = []
+   → Return {"status":"no_schedule"}
+
+📌 TH5: Có lỗi SQL
+   → Nhảy vào catch block
+   → Return {"status":"error", "message":"..."}
+
+
+================================================================================
+                        ĐIỂM QUAN TRỌNG
+================================================================================
+
+✓ Sử dụng Prepared Statements → Tránh SQL Injection
+✓ Kiểm tra nghỉ phép TRƯỚC lịch làm việc → Logic ưu tiên đúng
+✓ Sử dụng try-catch → Xử lý lỗi an toàn
+✓ Trả về JSON với Content-Type header → JavaScript parse được
+✓ Toán tử ?? → Tránh lỗi undefined index
+✓ DISTINCT trong SQL → Loại bỏ giờ trùng lặp
+✓ exit; sau return JSON nghỉ phép → Không chạy code thừa
+
+================================================================================

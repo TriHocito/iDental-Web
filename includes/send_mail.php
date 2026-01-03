@@ -26,7 +26,7 @@ function sendMailGeneric($toEmail, $subject, $bodyContent) {
         $mail->CharSet    = 'UTF-8';                                
 
         $mail->setFrom('tranhaitri92@gmail.com', 'iDental Clinic'); 
-        $mail->addAddress($toEmail);                                 
+        $mail->addAddress($toEmail);                                
 
         $mail->isHTML(true);                                  
         $mail->Subject = $subject;
@@ -103,5 +103,21 @@ function sendAbsenceNotification($toEmail, $patientName, $dateStr, $doctorName) 
         </div>
     ";
     return sendMailGeneric($toEmail, "⚠️ THÔNG BÁO: Thay đổi lịch hẹn khám tại iDental", $body);
+}
+
+function sendAccountLockNotification($toEmail, $name) {
+    $body = "
+        <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+            <h2 style='color: #d32f2f;'>Thông báo về trạng thái tài khoản</h2>
+            <p>Xin chào Bác sĩ <strong>$name</strong>,</p>
+            <p>Chúng tôi xin thông báo rằng tài khoản bác sĩ của bạn trên hệ thống <strong>iDental</strong> hiện đã bị <strong>TẠM KHÓA</strong> bởi Quản trị viên.</p>
+            <div style='background: #fff3e0; padding: 15px; border-radius: 5px; border-left: 4px solid #ff9800; margin: 20px 0;'>
+                <strong>Lưu ý:</strong> Bạn sẽ không thể đăng nhập vào hệ thống hoặc thực hiện các thao tác chuyên môn cho đến khi tài khoản được mở khóa.
+            </div>
+            <p>Nếu bạn cho rằng đây là một sự nhầm lẫn, vui lòng liên hệ trực tiếp với bộ phận quản lý phòng khám.</p>
+            <p>Trân trọng,<br>Ban quản trị iDental.</p>
+        </div>
+    ";
+    return sendMailGeneric($toEmail, "⚠️ CẢNH BÁO: Tài khoản của bạn đã bị khóa - iDental", $body);
 }
 ?>

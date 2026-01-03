@@ -22,13 +22,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             exit();
         }
 
-        // 2. CHECK NGHỈ PHÉP (Chặn tuyệt đối)
-        $ca_check = ($shift == 'Sang' || $shift == 'Chieu') ? $shift : 'Sang'; // Fallback
-        $sql_leave = "SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi = ? AND ngay_nghi = ? AND trang_thai = 'da_duyet'";
+        // [BỔ SUNG] KIỂM TRA TRẠNG THÁI BÁC SĨ (CHẶN NẾU BỊ KHÓA)
+        $stmt_doc_status = $conn->prepare("SELECT trang_thai FROM bacsi WHERE id_bacsi = ?");
+        $stmt_doc_status->execute([$id_bacsi]);
+        if ($stmt_doc_status->fetchColumn() == 0) {
+            echo "<script>alert('Bác sĩ này hiện đang tạm ngưng nhận lịch. Vui lòng chọn bác sĩ khác.'); window.history.back();</script>";
+            exit();
+        }
+
+        // 2. CHECK NGHỈ PHÉP (SỬA: Kiểm tra chi tiết theo Ca để tránh chặn cả ngày)
+        $sql_leave = "SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi = ? AND ngay_nghi = ? AND ca_nghi = ? AND trang_thai = 'da_duyet'";
         $stmt_leave = $conn->prepare($sql_leave);
-        $stmt_leave->execute([$id_bacsi, $date]);
+        $stmt_leave->execute([$id_bacsi, $date, $shift]);
         if ($stmt_leave->rowCount() > 0) {
-            echo "<script>alert('Bác sĩ đã nghỉ phép vào ngày này. Vui lòng chọn ngày khác.'); window.history.back();</script>";
+            echo "<script>alert('Bác sĩ đã nghỉ phép vào ca này. Vui lòng chọn ca khám hoặc ngày khác.'); window.history.back();</script>";
             exit();
         }
 
@@ -39,30 +46,42 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $stmt_work->execute([$id_bacsi, $start_hour, $date]);
 
         if ($stmt_work->rowCount() > 0) {
-            // Có lịch -> Đặt bình thường (Tính giờ)
-            $status = 'cho_xac_nhan'; // Theo quy trình BN đặt luôn là chờ xác nhận (hoặc da_xac_nhan tùy bạn, nhưng an toàn là chờ)
+            // Có lịch -> Đặt bình thường
+            $status = 'cho_xac_nhan'; 
             $msg = "Đặt lịch thành công! Vui lòng chờ xác nhận.";
             
-            // Tính giờ dự kiến (Logic cũ)
+            // [SỬA] Tính giờ dự kiến dựa trên THỜI GIAN DỊCH VỤ CỤ THỂ
             $end_hour = ($shift == 'Sang') ? '12:00:00' : '17:00:00';
-            $sql_last = "SELECT MAX(ngay_gio_hen) as last_time FROM lichhen WHERE id_bacsi = ? AND DATE(ngay_gio_hen) = ? AND TIME(ngay_gio_hen) >= ? AND TIME(ngay_gio_hen) < ?";
-            $stmt_last = $conn->prepare($sql_last);
-            $stmt_last->execute([$id_bacsi, $date, $start_hour, $end_hour]);
-            $last_appt = $stmt_last->fetch(PDO::FETCH_ASSOC);
             
-            if ($last_appt['last_time']) $ts = strtotime($last_appt['last_time']) + (20 * 60);
-            else $ts = strtotime("$date $start_hour");
+            // Lấy thời gian dịch vụ hiện tại
+            $stmt_dur = $conn->prepare("SELECT thoi_gian_phut FROM dichvu WHERE id_dichvu = ?");
+            $stmt_dur->execute([$id_dichvu]);
+            $current_duration = (int)$stmt_dur->fetchColumn();
+
+            // Tính tổng thời gian đã được đặt trước đó trong ca
+            $sql_queue = "SELECT COALESCE(SUM(dv.thoi_gian_phut), 0) as total_wait 
+                          FROM lichhen lh 
+                          JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu 
+                          WHERE lh.id_bacsi = ? AND DATE(lh.ngay_gio_hen) = ? 
+                          AND lh.trang_thai = 'da_xac_nhan'
+                          AND TIME(lh.ngay_gio_hen) >= ? AND TIME(lh.ngay_gio_hen) < ?";
+            $stmt_queue = $conn->prepare($sql_queue);
+            $stmt_queue->execute([$id_bacsi, $date, $start_hour, $end_hour]);
+            $wait_minutes = (int)$stmt_queue->fetchColumn();
             
-            if ($ts + (20*60) > strtotime("$date $end_hour")) {
-                echo "<script>alert('Ca này đã kín lịch.'); window.history.back();</script>"; exit();
+            $ts = strtotime("$date $start_hour") + ($wait_minutes * 60);
+            
+            // Kiểm tra xem giờ dự kiến + thời gian khám có vượt quá ca trực không
+            if ($ts + ($current_duration * 60) > strtotime("$date $end_hour")) {
+                echo "<script>alert('Ca này đã kín lịch, không đủ thời gian thực hiện dịch vụ này.'); window.history.back();</script>"; 
+                exit();
             }
             $final_datetime = date('Y-m-d H:i:s', $ts);
             
         } else {
-            // KHÔNG CÓ LỊCH -> Vẫn cho đặt nhưng là "Yêu cầu đặc biệt"
+            // KHÔNG CÓ LỊCH -> Chờ duyệt
             $status = 'cho_xac_nhan';
             $msg = "Bạn đã gửi yêu cầu đặt lịch vào ngày bác sĩ chưa có lịch. Vui lòng chờ Admin/Bác sĩ duyệt.";
-            // Giờ tạm tính là đầu ca
             $final_datetime = date('Y-m-d H:i:s', strtotime("$date $start_hour"));
         }
 
@@ -83,7 +102,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         $conn->commit();
 
-        echo "<script>alert('$msg'); window.location.href = '../views/index.php';</script>";
+        echo "<script>alert('$msg'); window.location.href = '../views/dangnhap.php';</script>";
 
     } catch (Exception $e) {
         if ($conn->inTransaction()) $conn->rollBack();

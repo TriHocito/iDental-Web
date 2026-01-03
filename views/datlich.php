@@ -2,7 +2,7 @@
 require '../config/db_connect.php';
 
 $services = $conn->query("SELECT * FROM dichvu")->fetchAll(PDO::FETCH_ASSOC);
-$doctors = $conn->query("SELECT * FROM bacsi")->fetchAll(PDO::FETCH_ASSOC);
+$doctors = $conn->query("SELECT * FROM bacsi WHERE trang_thai = 1")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="vi">

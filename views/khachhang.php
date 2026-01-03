@@ -18,7 +18,8 @@ if (!$user) {
 
 // 3. Lấy dữ liệu cho Modal Đặt lịch
 $services = $conn->query("SELECT * FROM dichvu")->fetchAll(PDO::FETCH_ASSOC);
-$doctors = $conn->query("SELECT * FROM bacsi")->fetchAll(PDO::FETCH_ASSOC);
+// [CẬP NHẬT] Chỉ lấy bác sĩ đang hoạt động
+$doctors = $conn->query("SELECT * FROM bacsi WHERE trang_thai = 1")->fetchAll(PDO::FETCH_ASSOC);
 
 // 4. Lấy Lịch Hẹn Sắp Tới
 $sql_upcoming = "SELECT t1.*, t2.ten_day_du AS ten_bacsi, t3.ten_dich_vu 
@@ -296,8 +297,6 @@ $history_appts->execute([$user_id]);
 </div>
 
 <script src="../assets/js/khachhang.js"></script>
-
-<script src="../assets/js/khachhang.js"></script>
 <script>
     // Hàm xem bệnh án (Giữ nguyên)
     async function viewMedicalRecord(recordId) {
@@ -369,8 +368,15 @@ $history_appts->execute([$user_id]);
                
                 shiftSelect.innerHTML = '<option value="">-- Chọn ca khám --</option>';
 
-                // TRƯỜNG HỢP 1: NGHỈ PHÉP
-                if (data.status === 'on_leave') {
+                // TRƯỜNG HỢP 1: BÁC SĨ BỊ KHÓA
+                if (data.status === 'locked') {
+                    alertBox.className = 'alert-box alert-error';
+                    alertBox.style.display = 'block';
+                    alertMsg.innerText = data.message;
+                    shiftSelect.disabled = true;
+                }
+                // TRƯỜNG HỢP 2: NGHỈ PHÉP
+                else if (data.status === 'on_leave') {
                     alertBox.className = 'alert-box alert-error';
                     alertBox.style.display = 'block';
                     alertMsg.innerHTML = `Bác sĩ <strong>nghỉ phép</strong> ngày ${formatDate(dateVal)}. Vui lòng chọn ngày khác.`;
@@ -379,7 +385,7 @@ $history_appts->execute([$user_id]);
                     shiftSelect.appendChild(opt);
                     shiftSelect.disabled = true;
                 } 
-                // TRƯỜNG HỢP 2: CÓ CA LÀM
+                // TRƯỜNG HỢP 3: CÓ CA LÀM
                 else if (data.status === 'has_schedule') {
                     data.shifts.forEach(shift => {
                         let opt = document.createElement('option');
@@ -388,7 +394,7 @@ $history_appts->execute([$user_id]);
                     });
                     shiftSelect.disabled = false;
                 } 
-                // TRƯỜNG HỢP 3: LỊCH ĐẶC BIỆT
+                // TRƯỜNG HỢP 4: LỊCH ĐẶC BIỆT
                 else {
                     alertBox.className = 'alert-box alert-warning';
                     

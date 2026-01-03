@@ -2,7 +2,6 @@
 // views/dangnhap.php
 session_start();
 
-
 if (isset($_SESSION['user_id'])) {
     if ($_SESSION['role'] == 'admin') header("Location: admin.php");
     else if ($_SESSION['role'] == 'doctor') header("Location: bacsi.php");
@@ -16,13 +15,9 @@ if (isset($_SESSION['user_id'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Đăng Nhập - iDental</title>
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link rel="stylesheet" href="../assets/css/styles.css">
-
     <style>
         .auth-page { min-height: 80vh; display: flex; align-items: center; justify-content: center; background-color: var(--bg); padding: 40px 20px; }
         .auth-box { background: white; padding: 40px; border-radius: 12px; box-shadow: var(--shadow); width: 100%; max-width: 450px; text-align: center; }
@@ -30,14 +25,11 @@ if (isset($_SESSION['user_id'])) {
         .role-btn { flex: 1; padding: 10px; border: none; background: none; cursor: pointer; border-radius: 6px; font-weight: 600; color: #666; transition: 0.2s; font-size: 13px; }
         .role-btn.active { background: white; color: var(--primary); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         .role-btn i { display: block; font-size: 18px; margin-bottom: 5px; }
-        
-      
         .register-link { margin-top: 20px; font-size: 14px; color: #666; }
         .register-link a { color: var(--primary); font-weight: 600; text-decoration: none; }
         .register-link a:hover { text-decoration: underline; }
     </style>
 </head>
-
 <body>
 
     <?php include '../includes/header.php'; ?>
@@ -70,8 +62,9 @@ if (isset($_SESSION['user_id'])) {
                 <div class="form-group">
                     <label>Mật khẩu</label>
                     <input type="password" name="password" class="form-control" placeholder="••••••••" required>
-                    <div style="text-align: right; margin-top: 5px;">
-                        <a href="forgot_password.php" style="font-size: 13px; color: var(--primary); text-decoration: none;">Quên mật khẩu?</a>
+                    
+                    <div id="forgotPassContainer" style="text-align: right; margin-top: 5px;">
+                        <a id="forgotPassLink" href="forgot_password.php?role=patient" style="font-size: 13px; color: var(--primary); text-decoration: none;">Quên mật khẩu?</a>
                     </div>
                 </div>
 
@@ -89,40 +82,51 @@ if (isset($_SESSION['user_id'])) {
 
     <script>
         function selectRole(role, btnElement) {
-            
+            // 1. Cập nhật input hidden
             document.getElementById('selectedRole').value = role;
             
-           
+            // 2. Active nút được chọn
             document.querySelectorAll('.role-btn').forEach(btn => btn.classList.remove('active'));
             if(btnElement) {
                 btnElement.classList.add('active');
             } else {
-                
                 document.querySelector(`.role-btn[onclick*="${role}"]`).classList.add('active');
             }
             
-            
+            // 3. Thay đổi giao diện Form
             const label = document.getElementById('loginLabel');
             const input = document.getElementById('username');
             const regSection = document.getElementById('registerSection');
+            const forgotContainer = document.getElementById('forgotPassContainer');
+            const forgotLink = document.getElementById('forgotPassLink');
             
             if(role === 'patient') {
                 label.innerText = "Số điện thoại"; 
                 input.placeholder = "Nhập SĐT...";
-                regSection.style.display = 'block'; 
+                regSection.style.display = 'block';
+                
+                // Hiển thị quên mật khẩu & cập nhật link
+                forgotContainer.style.display = 'block';
+                forgotLink.href = 'forgot_password.php?role=patient';
+
             } else if (role === 'doctor') {
                 label.innerText = "SĐT Bác sĩ"; 
                 input.placeholder = "Nhập SĐT đăng nhập...";
-                regSection.style.display = 'none';  
-            } else {
+                regSection.style.display = 'none'; 
+                
+                // Hiển thị quên mật khẩu & cập nhật link
+                forgotContainer.style.display = 'block';
+                forgotLink.href = 'forgot_password.php?role=doctor';
+
+            } else { // Admin
                 label.innerText = "Tên đăng nhập"; 
                 input.placeholder = "Nhập tên đăng nhập...";
                 regSection.style.display = 'none'; 
+                
+                // ẨN nút quên mật khẩu đối với Admin
+                forgotContainer.style.display = 'none';
             }
         }
     </script>
-    
-    <script src="../../assets/js/file.js"></script>
-
 </body>
 </html>
