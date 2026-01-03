@@ -15,6 +15,63 @@ if (isset($_GET['id'])) {
     $id_lichhen = $_GET['id'];
 
     try {
+        // [BỔ SUNG] Kiểm tra và tự động thêm lịch làm việc nếu chưa có
+        $stmt_check = $conn->prepare("SELECT id_bacsi, ngay_gio_hen FROM lichhen WHERE id_lichhen = ?");
+        $stmt_check->execute([$id_lichhen]);
+        $appt = $stmt_check->fetch(PDO::FETCH_ASSOC);
+
+        if ($appt) {
+            $id_bacsi_appt = $appt['id_bacsi'];
+            $ngay_hen = date('Y-m-d', strtotime($appt['ngay_gio_hen']));
+            $gio_hen = date('H:i:s', strtotime($appt['ngay_gio_hen']));
+            
+            // Xác định ca
+            if ($gio_hen < '12:00:00') {
+                $gio_bat_dau = '08:00:00';
+                $gio_ket_thuc = '12:00:00';
+            } else {
+                $gio_bat_dau = '13:00:00';
+                $gio_ket_thuc = '17:00:00';
+            }
+
+            // Kiểm tra lịch làm việc
+            $sql_check_schedule = "SELECT id_lichlamviec FROM lichlamviec 
+                                   WHERE id_bacsi = ? AND ngay_hieu_luc = ? AND gio_bat_dau = ?";
+            $stmt_schedule = $conn->prepare($sql_check_schedule);
+            $stmt_schedule->execute([$id_bacsi_appt, $ngay_hen, $gio_bat_dau]);
+
+            if ($stmt_schedule->rowCount() == 0) {
+                // Chưa có lịch -> Cần tạo lịch mới
+                
+                // [RÀNG BUỘC] Chỉ Admin mới được duyệt trường hợp này
+                if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
+                    echo "<script>alert('Lịch hẹn này nằm trong ngày bác sĩ chưa có lịch làm việc. Chỉ Admin mới có quyền duyệt và tạo lịch làm việc mới.'); window.history.back();</script>";
+                    exit();
+                }
+
+                // Tự động thêm lịch
+                // Lấy ghế đầu tiên
+                $stmt_chair = $conn->query("SELECT id_giuongbenh FROM giuongbenh LIMIT 1");
+                $id_giuong = $stmt_chair->fetchColumn();
+
+                if ($id_giuong) {
+                    $ngay_trong_tuan = date('N', strtotime($ngay_hen)); // 1 (Mon) - 7 (Sun)
+                    $id_admin = $_SESSION['user_id']; 
+
+                    $sql_insert_schedule = "INSERT INTO lichlamviec (id_bacsi, id_giuongbenh, id_quantrivien_tao, ngay_trong_tuan, gio_bat_dau, gio_ket_thuc, ngay_hieu_luc) 
+                                            VALUES (?, ?, ?, ?, ?, ?, ?)";
+                    $stmt_insert = $conn->prepare($sql_insert_schedule);
+                    if (!$stmt_insert->execute([$id_bacsi_appt, $id_giuong, $id_admin, $ngay_trong_tuan, $gio_bat_dau, $gio_ket_thuc, $ngay_hen])) {
+                         echo "<script>alert('Lỗi khi tạo lịch làm việc mới. Vui lòng thử lại.'); window.history.back();</script>";
+                         exit();
+                    }
+                } else {
+                     echo "<script>alert('Không tìm thấy giường bệnh khả dụng để tạo lịch.'); window.history.back();</script>";
+                     exit();
+                }
+            }
+        }
+
         // 1. Cập nhật trạng thái
         $stmt = $conn->prepare("UPDATE lichhen SET trang_thai = 'da_xac_nhan' WHERE id_lichhen = ?");
         if ($stmt->execute([$id_lichhen])) {

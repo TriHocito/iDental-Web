@@ -118,9 +118,24 @@ async function loadAppts(status, btn) {
 // --- Navigation & Helpers ---
 function showSection(id) {
     document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
+    const target = document.getElementById(id);
+    if(target) target.classList.add('active');
+    
     document.querySelectorAll('.menu-link').forEach(el => el.classList.remove('active'));
-    event.currentTarget.classList.add('active');
+    
+    // Highlight menu item
+    if(event && event.currentTarget && event.currentTarget.classList && event.currentTarget.classList.contains('menu-link')) {
+        event.currentTarget.classList.add('active');
+    } else {
+        // Find link by onclick content
+        const links = document.querySelectorAll('.menu-link');
+        links.forEach(link => {
+            if(link.getAttribute('onclick') && link.getAttribute('onclick').includes(`'${id}'`)) {
+                link.classList.add('active');
+            }
+        });
+    }
+    
     if(window.innerWidth < 1024) document.querySelector('.sidebar').classList.remove('show');
 }
 

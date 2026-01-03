@@ -19,7 +19,7 @@ function sendMailGeneric($toEmail, $subject, $bodyContent) {
         $mail->SMTPAuth   = true;                                   
         
         $mail->Username   = 'tranhaitri92@gmail.com';
-        $mail->Password   = 'bhcs ojsn jmjq ddpb';
+        $mail->Password   = 'jbzd iyew ohac msxw';
         
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;         
         $mail->Port       = 587;                                    

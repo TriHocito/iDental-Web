@@ -35,6 +35,23 @@ $conflicts = $conn->query($sql_conflict)->fetchAll(PDO::FETCH_ASSOC);
 $start_date = $_GET['from'] ?? date('Y-m-d', strtotime('monday this week'));
 $end_date = $_GET['to'] ?? date('Y-m-d', strtotime('sunday this week'));
 
+// --- Generate Weeks for Dropdown ---
+$weeks_options = [];
+$current_monday = strtotime('monday this week');
+// Mở rộng khoảng thời gian: 20 tuần trước và 20 tuần sau (khoảng 5 tháng)
+for ($i = -20; $i <= 20; $i++) {
+    $w_start = strtotime("$i weeks", $current_monday);
+    $w_end = strtotime('+6 days', $w_start);
+    $val_start = date('Y-m-d', $w_start);
+    $val_end = date('Y-m-d', $w_end);
+    
+    // Hiển thị thêm năm để dễ quản lý
+    $label = "Tuần " . date('d/m/Y', $w_start) . " - " . date('d/m/Y', $w_end);
+    if ($i == 0) $label .= " (Hiện tại)";
+    
+    $weeks_options[] = ['start' => $val_start, 'end' => $val_end, 'label' => $label];
+}
+
 // Lấy lịch nghỉ phép đã duyệt để map vào lịch hiển thị
 $leaves = $conn->prepare("SELECT * FROM yeucaunghi WHERE trang_thai='da_duyet' AND ngay_nghi BETWEEN ? AND ?");
 $leaves->execute([$start_date, $end_date]);
@@ -238,7 +255,10 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
             </div>
 
             <div id="schedule" class="content-section">
-                <h2>Lịch Làm Việc</h2>
+                <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
+                    <h2>Lịch Làm Việc</h2>
+                    <button class="btn btn-primary" onclick="openModal('addScheduleModal')"><i class="fas fa-plus"></i> Thêm Lịch</button>
+                </div>
                 <?php if(!empty($schedule_requests)): ?>
                 <div style="margin-bottom:20px;">
                     <h4 class="text-warning">Yêu cầu đăng ký mới</h4>
@@ -257,11 +277,23 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                 </div>
                 <?php endif; ?>
 
-                <form id="scheduleForm" method="GET" action="admin.php" onsubmit="return loadScheduleAjax(event)" style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:15px;">
+                <form id="scheduleForm" method="GET" action="admin.php" style="display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:15px;">
                     <input type="hidden" name="section" value="schedule">
-                    <div><label>Từ ngày:</label><input type="date" name="from" id="schFrom" value="<?php echo $start_date; ?>" class="form-control"></div>
-                    <div><label>Đến ngày:</label><input type="date" name="to" id="schTo" value="<?php echo $end_date; ?>" class="form-control"></div>
-                    <button type="submit" class="btn btn-primary">Xem lịch</button>
+                    <input type="hidden" name="from" id="schFrom" value="<?php echo $start_date; ?>">
+                    <input type="hidden" name="to" id="schTo" value="<?php echo $end_date; ?>">
+                    
+                    <div style="min-width: 250px;">
+                        <label>Chọn tuần làm việc:</label>
+                        <select id="weekSelector" class="form-control" onchange="onWeekChange(this)">
+                            <?php foreach($weeks_options as $w): 
+                                $sel = ($w['start'] == $start_date) ? 'selected' : '';
+                            ?>
+                            <option value="<?php echo $w['start'].'|'.$w['end']; ?>" <?php echo $sel; ?>>
+                                <?php echo $w['label']; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                 </form>
 
                 <div id="scheduleTableWrap" class="table-container">
@@ -466,6 +498,48 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
     </div>
 </div>
 
+<div id="addScheduleModal" class="modal">
+    <div class="modal-content" style="max-width:1000px;">
+        <div class="modal-header"><h3>Thêm Lịch Làm Việc (Tuần)</h3><span class="close-btn" onclick="closeModal('addScheduleModal')">&times;</span></div>
+        <form action="../controllers/admin_actions.php" method="POST" class="modal-body" onsubmit="return validateAddSchedule()" style="max-height: 90vh;">
+            <input type="hidden" name="action" value="add_schedule_week">
+            <div class="form-group"><label>Bác sĩ:</label>
+                <select name="id_bacsi" class="form-control" required>
+                    <?php foreach($doctors as $d): if(isset($d['trang_thai']) && $d['trang_thai']==0) continue; ?>
+                    <option value="<?php echo $d['id_bacsi']; ?>"><?php echo $d['ten_day_du']; ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="form-group"><label>Chọn tuần (Bắt đầu từ Thứ 2):</label>
+                <input type="date" name="start_date" id="schStartDate" class="form-control" required min="<?php echo date('Y-m-d'); ?>" onchange="updateWeekDays()">
+            </div>
+            
+            <div class="form-group">
+                <label>Chọn các ca làm việc:</label>
+                <table class="data-table" style="text-align:center;">
+                    <thead><tr><th>Thứ</th><th>Ngày</th><th>Sáng (08:00-12:00)</th><th>Chiều (13:00-17:00)</th></tr></thead>
+                    <tbody id="weekDaysBody">
+                        <!-- JS will populate this -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="form-group" style="display:flex; gap:10px; align-items:flex-end;">
+                <div style="flex:1;">
+                    <label>Chọn Giường/Ghế:</label>
+                    <select name="id_giuongbenh" id="schBed" class="form-control" required disabled>
+                        <option value="">-- Vui lòng chọn ca & tìm giường --</option>
+                    </select>
+                </div>
+                <button type="button" class="btn btn-info" onclick="findAvailableBeds()">Tìm giường trống</button>
+            </div>
+            <small id="bedMsg" class="text-danger" style="display:none; margin-bottom:10px;"></small>
+
+            <button id="btnAddSchedule" class="btn btn-primary" style="width:100%" disabled>Lưu Lịch</button>
+        </form>
+    </div>
+</div>
+
 <div id="adminWalkinModal" class="modal">
     <div class="modal-content">
         <div class="modal-header"><h3>Khách Vãng Lai</h3><span class="close-btn" onclick="closeModal('adminWalkinModal')">&times;</span></div>
@@ -493,6 +567,7 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
         <div class="modal-header"><h3>Đổi Mật Khẩu</h3><span class="close-btn" onclick="closeModal('profileModal')">&times;</span></div>
         <form action="../controllers/admin_actions.php" method="POST" class="modal-body">
             <input type="hidden" name="action" value="change_self_pass">
+            <div class="form-group"><label>Mật khẩu cũ:</label><input type="password" name="old_pass" class="form-control" required></div>
             <div class="form-group"><label>Mật khẩu mới:</label><input type="password" name="new_pass" class="form-control" required></div>
             <button class="btn btn-primary" style="width:100%">Cập nhật</button>
             <div style="text-align:center; margin-top:15px;"><a href="../controllers/logout.php" class="text-danger">Đăng xuất</a></div>
@@ -597,6 +672,136 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
         document.getElementById('editDocSpec').value = data.chuyen_khoa;
         document.getElementById('editDoctorModal').style.display = 'block';
     }
+
+    function updateWeekDays() {
+        const startInput = document.getElementById('schStartDate');
+        const tbody = document.getElementById('weekDaysBody');
+        tbody.innerHTML = '';
+        
+        if (!startInput.value) return;
+
+        let date = new Date(startInput.value);
+        // Adjust to Monday if not already
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day == 0 ? -6 : 1); 
+        date.setDate(diff);
+        
+        // Update input to show Monday
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        startInput.value = `${yyyy}-${mm}-${dd}`;
+
+        const days = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
+        
+        for (let i = 0; i < 7; i++) {
+            const curDate = new Date(date);
+            curDate.setDate(date.getDate() + i);
+            const dateStr = curDate.toISOString().split('T')[0];
+            const displayDate = `${curDate.getDate()}/${curDate.getMonth()+1}`;
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${days[i]}</td>
+                <td>${displayDate}</td>
+                <td><input type="checkbox" name="shifts[${dateStr}][Sang]" value="1" class="shift-check"></td>
+                <td><input type="checkbox" name="shifts[${dateStr}][Chieu]" value="1" class="shift-check"></td>
+            `;
+            tbody.appendChild(tr);
+        }
+        
+        // Reset bed selection
+        document.getElementById('schBed').innerHTML = '<option value="">-- Vui lòng chọn ca & tìm giường --</option>';
+        document.getElementById('schBed').disabled = true;
+        document.getElementById('btnAddSchedule').disabled = true;
+    }
+
+    function findAvailableBeds() {
+        const checks = document.querySelectorAll('.shift-check:checked');
+        if (checks.length === 0) {
+            alert('Vui lòng chọn ít nhất một ca làm việc!');
+            return;
+        }
+
+        const shifts = [];
+        checks.forEach(c => {
+            const name = c.name; // shifts[2025-01-01][Sang]
+            const match = name.match(/shifts\[(.*?)\]\[(.*?)\]/);
+            if (match) {
+                shifts.push({date: match[1], shift: match[2]});
+            }
+        });
+
+        const bedSelect = document.getElementById('schBed');
+        const btn = document.getElementById('btnAddSchedule');
+        const msg = document.getElementById('bedMsg');
+        
+        bedSelect.innerHTML = '<option>Đang tìm...</option>';
+        bedSelect.disabled = true;
+        btn.disabled = true;
+        msg.style.display = 'none';
+
+        fetch('../controllers/admin_actions.php?action=find_beds_bulk', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({shifts: shifts})
+        })
+        .then(res => res.json())
+        .then(data => {
+            bedSelect.innerHTML = '';
+            if (data.length > 0) {
+                data.forEach(bed => {
+                    const opt = document.createElement('option');
+                    opt.value = bed.id_giuongbenh;
+                    opt.textContent = bed.ten_giuong;
+                    bedSelect.appendChild(opt);
+                });
+                bedSelect.disabled = false;
+                btn.disabled = false;
+            } else {
+                bedSelect.innerHTML = '<option value="">-- Hết giường trống --</option>';
+                msg.textContent = 'Không có giường nào trống cho TẤT CẢ các ca đã chọn. Vui lòng bỏ bớt ca hoặc chọn tuần khác.';
+                msg.style.display = 'block';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            bedSelect.innerHTML = '<option value="">Lỗi</option>';
+        });
+    }
+
+    function validateAddSchedule() {
+        const bed = document.getElementById('schBed').value;
+        if (!bed) {
+            alert('Vui lòng chọn giường làm việc!');
+            return false;
+        }
+        return true;
+    }
+
+    function openSwitchDoctorModal(id, name) {
+        document.getElementById('switchApptId').value = id;
+        document.getElementById('switchPatientName').innerText = name;
+        document.getElementById('switchDoctorModal').style.display = 'block';
+    }
+
+    function onWeekChange(select) {
+        const parts = select.value.split('|');
+        if(parts.length === 2) {
+            document.getElementById('schFrom').value = parts[0];
+            document.getElementById('schTo').value = parts[1];
+            document.getElementById('scheduleForm').submit();
+        }
+    }
+
+    // Restore active section from URL
+    document.addEventListener("DOMContentLoaded", function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const sec = urlParams.get('section');
+        if(sec) {
+            showSection(sec);
+        }
+    });
 </script>
 </body>
 </html>

@@ -34,6 +34,49 @@ try {
     // GROUP A: AJAX JSON RESPONSES
     // =============================================================
 
+    if ($action == 'find_beds_bulk') {
+        header('Content-Type: application/json');
+        $input = json_decode(file_get_contents('php://input'), true);
+        $shifts = $input['shifts'] ?? [];
+        
+        if (empty($shifts)) { echo json_encode([]); exit(); }
+
+        // Logic: Find beds that are NOT in the busy list for ANY of the requested slots
+        // 1. Build a list of busy beds
+        $busy_beds = [];
+        
+        foreach ($shifts as $s) {
+            $date = $s['date'];
+            $shift = $s['shift'];
+            $start = ($shift == 'Sang') ? '08:00:00' : '13:00:00';
+            $end = ($shift == 'Sang') ? '12:00:00' : '17:00:00';
+
+            $sql = "SELECT id_giuongbenh FROM lichlamviec 
+                    WHERE ngay_hieu_luc = ? 
+                    AND ((gio_bat_dau < ?) AND (gio_ket_thuc > ?))";
+            $stmt = $conn->prepare($sql);
+            $stmt->execute([$date, $end, $start]);
+            $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $busy_beds = array_merge($busy_beds, $ids);
+        }
+        
+        $busy_beds = array_unique($busy_beds);
+        
+        // 2. Get all beds excluding busy ones
+        $sql_all = "SELECT * FROM giuongbenh";
+        if (!empty($busy_beds)) {
+            $placeholders = implode(',', array_fill(0, count($busy_beds), '?'));
+            $sql_all .= " WHERE id_giuongbenh NOT IN ($placeholders)";
+            $stmt = $conn->prepare($sql_all);
+            $stmt->execute($busy_beds);
+        } else {
+            $stmt = $conn->query($sql_all);
+        }
+        
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+        exit();
+    }
+
     if ($action == 'search_patient') {
         header('Content-Type: application/json');
         $keyword = $_GET['keyword'] ?? '';
@@ -204,6 +247,85 @@ try {
     // GROUP B: FORM ACTIONS & LOGIC
     // =============================================================
 
+    if ($action == 'add_schedule_manual') {
+        $id_bs = $_POST['id_bacsi'];
+        $date = $_POST['date'];
+        $shift = $_POST['shift'];
+        $id_bed = $_POST['id_giuongbenh'];
+        
+        $start = ($shift == 'Sang') ? '08:00:00' : '13:00:00';
+        $end = ($shift == 'Sang') ? '12:00:00' : '17:00:00';
+        $day = date('N', strtotime($date));
+
+        // Check existing schedule for doctor
+        $check = $conn->prepare("SELECT id_lichlamviec FROM lichlamviec WHERE id_bacsi=? AND ngay_hieu_luc=? AND gio_bat_dau=?");
+        $check->execute([$id_bs, $date, $start]);
+        if ($check->rowCount() > 0) {
+            echo "<script>alert('Bác sĩ đã có lịch làm việc vào ca này!'); window.history.back();</script>";
+            exit();
+        }
+
+        // Check bed availability again
+        $checkBed = $conn->prepare("SELECT id_lichlamviec FROM lichlamviec WHERE id_giuongbenh=? AND ngay_hieu_luc=? AND gio_bat_dau=?");
+        $checkBed->execute([$id_bed, $date, $start]);
+        if ($checkBed->rowCount() > 0) {
+             echo "<script>alert('Giường này đã có người đặt trong ca này!'); window.history.back();</script>";
+             exit();
+        }
+
+        $conn->prepare("INSERT INTO lichlamviec (id_bacsi, id_giuongbenh, id_quantrivien_tao, ngay_trong_tuan, gio_bat_dau, gio_ket_thuc, ngay_hieu_luc) VALUES (?,?,?,?,?,?,?)")
+             ->execute([$id_bs, $id_bed, $id_quantrivien, $day, $start, $end, $date]);
+        
+        echo "<script>alert('Thêm lịch làm việc thành công!'); location.href='../views/admin.php#schedule';</script>";
+    }
+
+    elseif ($action == 'add_schedule_week') {
+        $id_bs = $_POST['id_bacsi'];
+        $id_bed = $_POST['id_giuongbenh'];
+        $shifts = $_POST['shifts'] ?? [];
+
+        if (empty($shifts)) {
+            echo "<script>alert('Chưa chọn ca làm việc nào!'); window.history.back();</script>";
+            exit();
+        }
+
+        $count = 0;
+        $failed = 0;
+        foreach ($shifts as $date => $day_shifts) {
+            foreach ($day_shifts as $shift_code => $val) {
+                if ($val != 1) continue;
+
+                $start = ($shift_code == 'Sang') ? '08:00:00' : '13:00:00';
+                $end = ($shift_code == 'Sang') ? '12:00:00' : '17:00:00';
+                $day_of_week = date('N', strtotime($date));
+
+                // Check doctor availability
+                $checkDoc = $conn->prepare("SELECT id_lichlamviec FROM lichlamviec WHERE id_bacsi=? AND ngay_hieu_luc=? AND gio_bat_dau=?");
+                $checkDoc->execute([$id_bs, $date, $start]);
+                if ($checkDoc->rowCount() > 0) { $failed++; continue; } // Skip if doctor already busy
+
+                // [LOGIC FIX] Check if doctor is on leave (Approved Leave)
+                $checkLeave = $conn->prepare("SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi=? AND ngay_nghi=? AND ca_nghi=? AND trang_thai='da_duyet'");
+                $checkLeave->execute([$id_bs, $date, $shift_code]);
+                if ($checkLeave->rowCount() > 0) { $failed++; continue; } // Skip if doctor is on leave
+
+                // Check bed availability
+                $checkBed = $conn->prepare("SELECT id_lichlamviec FROM lichlamviec WHERE id_giuongbenh=? AND ngay_hieu_luc=? AND gio_bat_dau=?");
+                $checkBed->execute([$id_bed, $date, $start]);
+                if ($checkBed->rowCount() > 0) { $failed++; continue; } // Skip if bed taken (race condition)
+
+                $conn->prepare("INSERT INTO lichlamviec (id_bacsi, id_giuongbenh, id_quantrivien_tao, ngay_trong_tuan, gio_bat_dau, gio_ket_thuc, ngay_hieu_luc) VALUES (?,?,?,?,?,?,?)")
+                     ->execute([$id_bs, $id_bed, $id_quantrivien, $day_of_week, $start, $end, $date]);
+                $count++;
+            }
+        }
+
+        $msg = "Đã thêm $count ca làm việc thành công!";
+        if ($failed > 0) $msg .= " Có $failed ca không thể thêm do trùng lịch hoặc hết giường.";
+        
+        echo "<script>alert('$msg'); location.href='../views/admin.php#schedule';</script>";
+    }
+
     if ($action == 'add_doctor') {
         $check = $conn->prepare("SELECT id_bacsi FROM bacsi WHERE sdt=? OR email=?"); 
         $check->execute([$_POST['sdt'], $_POST['email']]);
@@ -340,8 +462,63 @@ try {
     }
 
     elseif ($action == 'approve_appointment') {
-        $conn->prepare("UPDATE lichhen SET trang_thai='da_xac_nhan' WHERE id_lichhen=?")->execute([$_GET['id']]);
-        $info = $conn->query("SELECT bn.email, bn.ten_day_du, bs.ten_day_du as ten_bs, dv.ten_dich_vu, lh.ngay_gio_hen FROM lichhen lh JOIN benhnhan bn ON lh.id_benhnhan=bn.id_benhnhan JOIN bacsi bs ON lh.id_bacsi=bs.id_bacsi JOIN dichvu dv ON lh.id_dichvu=dv.id_dichvu WHERE id_lichhen=".$_GET['id'])->fetch();
+        $id_lichhen = $_GET['id'];
+        
+        // [BỔ SUNG] Kiểm tra và tự động thêm lịch làm việc nếu chưa có
+        $stmt_check = $conn->prepare("SELECT id_bacsi, ngay_gio_hen FROM lichhen WHERE id_lichhen = ?");
+        $stmt_check->execute([$id_lichhen]);
+        $appt = $stmt_check->fetch(PDO::FETCH_ASSOC);
+
+        if ($appt) {
+            $id_bacsi_appt = $appt['id_bacsi'];
+            $ngay_hen = date('Y-m-d', strtotime($appt['ngay_gio_hen']));
+            $gio_hen = date('H:i:s', strtotime($appt['ngay_gio_hen']));
+            
+            // Xác định ca
+            if ($gio_hen < '12:00:00') {
+                $gio_bat_dau = '08:00:00';
+                $gio_ket_thuc = '12:00:00';
+            } else {
+                $gio_bat_dau = '13:00:00';
+                $gio_ket_thuc = '17:00:00';
+            }
+
+            // Kiểm tra lịch làm việc
+            $sql_check_schedule = "SELECT id_lichlamviec FROM lichlamviec 
+                                   WHERE id_bacsi = ? AND ngay_hieu_luc = ? AND gio_bat_dau = ?";
+            $stmt_schedule = $conn->prepare($sql_check_schedule);
+            $stmt_schedule->execute([$id_bacsi_appt, $ngay_hen, $gio_bat_dau]);
+
+            if ($stmt_schedule->rowCount() == 0) {
+                // [LOGIC FIX] Check if doctor is on leave before auto-scheduling
+                $shift_code_check = ($gio_bat_dau == '08:00:00') ? 'Sang' : 'Chieu';
+                $chkLeave = $conn->prepare("SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi=? AND ngay_nghi=? AND ca_nghi=? AND trang_thai='da_duyet'");
+                $chkLeave->execute([$id_bacsi_appt, $ngay_hen, $shift_code_check]);
+                
+                if ($chkLeave->rowCount() > 0) {
+                    echo "<script>alert('Không thể duyệt: Bác sĩ đã nghỉ phép vào ca này ($shift_code_check - $ngay_hen)!'); window.history.back();</script>";
+                    exit();
+                }
+
+                // Chưa có lịch -> Tự động thêm
+                $bed = getAvailableBed($conn, $ngay_hen, $gio_bat_dau, $gio_ket_thuc);
+                
+                if ($bed) {
+                    $ngay_trong_tuan = date('N', strtotime($ngay_hen)); // 1 (Mon) - 7 (Sun)
+                    
+                    $sql_insert_schedule = "INSERT INTO lichlamviec (id_bacsi, id_giuongbenh, id_quantrivien_tao, ngay_trong_tuan, gio_bat_dau, gio_ket_thuc, ngay_hieu_luc) 
+                                            VALUES (?, ?, ?, ?, ?, ?, ?)";
+                    $stmt_insert = $conn->prepare($sql_insert_schedule);
+                    $stmt_insert->execute([$id_bacsi_appt, $bed, $id_quantrivien, $ngay_trong_tuan, $gio_bat_dau, $gio_ket_thuc, $ngay_hen]);
+                } else {
+                    echo "<script>alert('Không thể duyệt: Không còn giường trống để tạo lịch làm việc cho bác sĩ vào ca này!'); window.history.back();</script>";
+                    exit();
+                }
+            }
+        }
+
+        $conn->prepare("UPDATE lichhen SET trang_thai='da_xac_nhan' WHERE id_lichhen=?")->execute([$id_lichhen]);
+        $info = $conn->query("SELECT bn.email, bn.ten_day_du, bs.ten_day_du as ten_bs, dv.ten_dich_vu, lh.ngay_gio_hen FROM lichhen lh JOIN benhnhan bn ON lh.id_benhnhan=bn.id_benhnhan JOIN bacsi bs ON lh.id_bacsi=bs.id_bacsi JOIN dichvu dv ON lh.id_dichvu=dv.id_dichvu WHERE id_lichhen=".$id_lichhen)->fetch();
         if($info['email']) sendAppointmentConfirmation($info['email'], $info['ten_day_du'], date('H:i d/m/Y', strtotime($info['ngay_gio_hen'])), $info['ten_bs'], $info['ten_dich_vu']);
         echo "<script>alert('Đã xác nhận!'); location.href='../views/admin.php#appointments';</script>";
     }
@@ -432,8 +609,19 @@ try {
     }
 
     elseif ($action == 'change_self_pass') {
-        $conn->prepare("UPDATE quantrivien SET mat_khau_hash=? WHERE id_quantrivien=?")->execute([password_hash($_POST['new_pass'], PASSWORD_DEFAULT), $id_quantrivien]);
-        echo "<script>alert('Đổi mật khẩu thành công'); location.href='../views/admin.php';</script>";
+        $old_pass = $_POST['old_pass'];
+        $new_pass = $_POST['new_pass'];
+
+        $stmt = $conn->prepare("SELECT mat_khau_hash FROM quantrivien WHERE id_quantrivien = ?");
+        $stmt->execute([$id_quantrivien]);
+        $current_hash = $stmt->fetchColumn();
+
+        if (password_verify($old_pass, $current_hash)) {
+            $conn->prepare("UPDATE quantrivien SET mat_khau_hash=? WHERE id_quantrivien=?")->execute([password_hash($new_pass, PASSWORD_DEFAULT), $id_quantrivien]);
+            echo "<script>alert('Đổi mật khẩu thành công'); location.href='../views/admin.php';</script>";
+        } else {
+            echo "<script>alert('Mật khẩu cũ không chính xác!'); window.history.back();</script>";
+        }
     }
     elseif ($action == 'add_service') { $conn->prepare("INSERT INTO dichvu (ten_dich_vu, mo_ta, gia_tien, thoi_gian_phut) VALUES (?,?,?,?)")->execute([$_POST['name'], $_POST['desc'], $_POST['price'], $_POST['time']]); echo "<script>alert('Thêm dịch vụ thành công'); location.href='../views/admin.php#services';</script>"; }
     elseif ($action == 'edit_service') { $conn->prepare("UPDATE dichvu SET ten_dich_vu=?, mo_ta=?, gia_tien=?, thoi_gian_phut=? WHERE id_dichvu=?")->execute([$_POST['name'], $_POST['desc'], $_POST['price'], $_POST['time'], $_POST['id']]); echo "<script>alert('Sửa dịch vụ thành công'); location.href='../views/admin.php#services';</script>"; }
