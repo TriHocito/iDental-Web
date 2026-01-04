@@ -81,7 +81,16 @@ $sql_pending_check = "SELECT lh.*, bn.ten_day_du AS ten_bn, bn.sdt, dv.ten_dich_
 
 $pending = $conn->query($sql_pending_check)->fetchAll(PDO::FETCH_ASSOC);
 $upcoming = $conn->query("$base_sql AND lh.trang_thai = 'da_xac_nhan' AND lh.ngay_gio_hen >= NOW() ORDER BY lh.ngay_gio_hen ASC")->fetchAll(PDO::FETCH_ASSOC);
-$completed = $conn->query("$base_sql AND lh.trang_thai = 'hoan_thanh' ORDER BY lh.ngay_gio_hen DESC")->fetchAll(PDO::FETCH_ASSOC);
+
+// Cập nhật query lấy danh sách đã khám để kèm ID bệnh án
+$completed = $conn->query("SELECT lh.*, bn.ten_day_du AS ten_bn, bn.sdt, dv.ten_dich_vu AS ten_dichvu, ba.id_benhan 
+                           FROM lichhen lh 
+                           JOIN benhnhan bn ON lh.id_benhnhan = bn.id_benhnhan 
+                           JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu 
+                           LEFT JOIN benhan ba ON lh.id_lichhen = ba.id_lichhen
+                           WHERE lh.id_bacsi = $doctor_id AND lh.trang_thai = 'hoan_thanh' 
+                           ORDER BY lh.ngay_gio_hen DESC")->fetchAll(PDO::FETCH_ASSOC);
+
 $appointments_today = $conn->query("$base_sql AND DATE(lh.ngay_gio_hen) = CURDATE() ORDER BY lh.ngay_gio_hen ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 $count_patients = count($completed);
@@ -310,11 +319,12 @@ $count_pending = count($pending);
                                 <tbody>
                                     <?php foreach ($upcoming as $row): ?>
                                         <tr>
-                                            <td style="color:var(--primary); font-weight:bold;"><?php echo date('H:i d/m/Y', strtotime($row['ngay_gio_hen'])); ?></td>
-                                            <td><?php echo htmlspecialchars($row['ten_bn']); ?></td>
-                                            <td><?php echo htmlspecialchars($row['ten_dichvu']); ?></td>
-                                            <td>
+                                            <td data-label="Thời gian" style="color:var(--primary); font-weight:bold;"><?php echo date('H:i d/m/Y', strtotime($row['ngay_gio_hen'])); ?></td>
+                                            <td data-label="Bệnh nhân"><?php echo htmlspecialchars($row['ten_bn']); ?></td>
+                                            <td data-label="Dịch vụ"><?php echo htmlspecialchars($row['ten_dichvu']); ?></td>
+                                            <td data-label="Tác vụ">
                                                 <button class="btn btn-primary" onclick="openMedicalModal(<?php echo $row['id_lichhen']; ?>, '<?php echo $row['ten_bn']; ?>')">Khám</button>
+                                                <button class="btn btn-warning" onclick="openRescheduleModal(<?php echo $row['id_lichhen']; ?>, '<?php echo $row['ten_bn']; ?>')"><i class="fas fa-calendar-alt"></i> Đổi</button>
                                                 <a href="../controllers/doctor_actions.php?action=reject_appointment&id=<?php echo $row['id_lichhen']; ?>" class="btn btn-danger" onclick="return confirm('Hủy lịch này?')">Hủy</a>
                                             </td>
                                         </tr>
@@ -331,16 +341,17 @@ $count_pending = count($pending);
                                 <tbody>
                                     <?php foreach ($pending as $row): ?>
                                         <tr>
-                                            <td><?php echo date('H:i d/m/Y', strtotime($row['ngay_gio_hen'])); ?></td>
-                                            <td><?php echo htmlspecialchars($row['ten_bn']); ?></td>
-                                            <td><?php echo htmlspecialchars($row['ten_dichvu']); ?></td>
-                                            <td><?php if($row['has_shift']>0):?><span class="badge bg-pending">Chờ xác nhận</span><?php else:?><span class="badge" style="background:#607d8b; color:white;">Lịch Đặc Biệt</span><?php endif;?></td>
-                                            <td>
+                                            <td data-label="Thời gian"><?php echo date('H:i d/m/Y', strtotime($row['ngay_gio_hen'])); ?></td>
+                                            <td data-label="Bệnh nhân"><?php echo htmlspecialchars($row['ten_bn']); ?></td>
+                                            <td data-label="Dịch vụ"><?php echo htmlspecialchars($row['ten_dichvu']); ?></td>
+                                            <td data-label="Trạng thái"><?php if($row['has_shift']>0):?><span class="badge bg-pending">Chờ xác nhận</span><?php else:?><span class="badge" style="background:#607d8b; color:white;">Lịch Đặc Biệt</span><?php endif;?></td>
+                                            <td data-label="Thao tác">
                                                 <?php if($row['has_shift']>0):?>
                                                     <a href="../controllers/doctor_actions.php?action=approve_appointment&id=<?php echo $row['id_lichhen']; ?>" class="btn btn-success" onclick="return confirm('Nhận lịch này?')">Duyệt</a>
                                                 <?php else:?>
                                                     <button class="btn" style="background:#ccc;" disabled>Duyệt</button>
                                                 <?php endif;?>
+                                                <button class="btn btn-warning" onclick="openRescheduleModal(<?php echo $row['id_lichhen']; ?>, '<?php echo $row['ten_bn']; ?>')"><i class="fas fa-calendar-alt"></i> Đổi</button>
                                                 <a href="../controllers/doctor_actions.php?action=reject_appointment&id=<?php echo $row['id_lichhen']; ?>" class="btn btn-danger" onclick="return confirm('Từ chối?')">Hủy</a>
                                             </td>
                                         </tr>
@@ -353,14 +364,23 @@ $count_pending = count($pending);
                     <div id="tab-completed" class="tab-content">
                         <div class="table-container">
                             <table class="data-table">
-                                <thead><tr><th>Ngày khám</th><th>Bệnh nhân</th><th>Dịch vụ</th><th>Trạng thái</th></tr></thead>
+                                <thead><tr><th>Ngày khám</th><th>Bệnh nhân</th><th>Dịch vụ</th><th>Trạng thái</th><th>Bệnh án</th></tr></thead>
                                 <tbody>
                                     <?php foreach ($completed as $row): ?>
                                         <tr>
-                                            <td><?php echo date('d/m/Y', strtotime($row['ngay_gio_hen'])); ?></td>
-                                            <td><?php echo htmlspecialchars($row['ten_bn']); ?></td>
-                                            <td><?php echo htmlspecialchars($row['ten_dichvu']); ?></td>
-                                            <td><span class="badge bg-confirmed">Hoàn thành</span></td>
+                                            <td data-label="Ngày khám"><?php echo date('d/m/Y', strtotime($row['ngay_gio_hen'])); ?></td>
+                                            <td data-label="Bệnh nhân"><?php echo htmlspecialchars($row['ten_bn']); ?></td>
+                                            <td data-label="Dịch vụ"><?php echo htmlspecialchars($row['ten_dichvu']); ?></td>
+                                            <td data-label="Trạng thái"><span class="badge bg-confirmed">Hoàn thành</span></td>
+                                            <td data-label="Bệnh án">
+                                                <?php if (!empty($row['id_benhan'])): ?>
+                                                    <button class="btn btn-secondary" onclick="viewMedicalRecord(<?php echo $row['id_benhan']; ?>)">
+                                                        <i class="fas fa-file-medical"></i> Xem
+                                                    </button>
+                                                <?php else: ?>
+                                                    <span style="color:#999; font-size:0.9em;">Chưa có</span>
+                                                <?php endif; ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -414,26 +434,28 @@ $count_pending = count($pending);
                     <p style="color:#0046ad; background:#e3f2fd; padding:10px; border-radius:5px;">
                         <i class="fas fa-info-circle"></i> Vui lòng tích chọn các ca bạn có thể làm việc. Dữ liệu sẽ tự động cập nhật ngày theo tuần bạn chọn ở trên.
                     </p>
-                    <table class="reg-table" style="width:100%; border-collapse:collapse;">
-                        <tr style="background:#f5f5f5">
-                            <th style="width:100px;">Ca / Ngày</th>
-                            <?php for($i=0; $i<7; $i++): ?>
-                                <th id="reg-th-<?php echo $i; ?>">Loading...</th>
-                            <?php endfor; ?>
-                        </tr>
-                        <tr>
-                            <td><strong>SÁNG</strong><br>(08:00 - 12:00)</td>
-                            <?php for($i=0; $i<7; $i++): ?>
-                                <td><input type="checkbox" id="reg-chk-sang-<?php echo $i; ?>" value="1"></td>
-                            <?php endfor; ?>
-                        </tr>
-                        <tr>
-                            <td><strong>CHIỀU</strong><br>(13:00 - 17:00)</td>
-                            <?php for($i=0; $i<7; $i++): ?>
-                                <td><input type="checkbox" id="reg-chk-chieu-<?php echo $i; ?>" value="1"></td>
-                            <?php endfor; ?>
-                        </tr>
-                    </table>
+                    <div style="overflow-x:auto;">
+                        <table class="reg-table" style="width:100%; border-collapse:collapse; min-width: 600px;">
+                            <tr style="background:#f5f5f5">
+                                <th style="width:100px;">Ca / Ngày</th>
+                                <?php for($i=0; $i<7; $i++): ?>
+                                    <th id="reg-th-<?php echo $i; ?>">Loading...</th>
+                                <?php endfor; ?>
+                            </tr>
+                            <tr>
+                                <td><strong>SÁNG</strong><br>(08:00 - 12:00)</td>
+                                <?php for($i=0; $i<7; $i++): ?>
+                                    <td><input type="checkbox" id="reg-chk-sang-<?php echo $i; ?>" value="1"></td>
+                                <?php endfor; ?>
+                            </tr>
+                            <tr>
+                                <td><strong>CHIỀU</strong><br>(13:00 - 17:00)</td>
+                                <?php for($i=0; $i<7; $i++): ?>
+                                    <td><input type="checkbox" id="reg-chk-chieu-<?php echo $i; ?>" value="1"></td>
+                                <?php endfor; ?>
+                            </tr>
+                        </table>
+                    </div>
                 </div>
                 <div class="modal-footer"><button type="submit" name="submit_schedule_request" class="btn btn-primary">Gửi Đăng Ký</button></div>
             </form>
@@ -541,7 +563,51 @@ $count_pending = count($pending);
         </div>
     </div>
 
-    <script src="../assets/js/bacsi.js"></script>
+    <div id="rescheduleModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Đổi Lịch Hẹn</h3><span class="close-btn" onclick="document.getElementById('rescheduleModal').style.display='none'">&times;</span></div>
+        <form action="../controllers/doctor_actions.php" method="POST" class="modal-body">
+            <input type="hidden" name="action" value="reschedule_appointment">
+            <input type="hidden" name="id_lichhen" id="reschApptId">
+            <p>Bệnh nhân: <strong id="reschPatientName"></strong></p>
+            
+            <div class="form-group">
+                <label>Ngày mới:</label>
+                <input type="date" name="new_date" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
+            </div>
+            <div class="form-group">
+                <label>Ca mới:</label>
+                <select name="new_shift" class="form-control" required>
+                    <option value="Sang">Sáng (08:00 - 12:00)</option>
+                    <option value="Chieu">Chiều (13:00 - 17:00)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Lý do thay đổi (Gửi mail cho khách):</label>
+                <textarea name="reason" class="form-control" rows="3" placeholder="Ví dụ: Bác sĩ có việc đột xuất..."></textarea>
+            </div>
+            <button class="btn btn-primary" style="width:100%">Lưu Thay Đổi</button>
+        </form>
+    </div>
+</div>
+
+<!-- Modal Xem Chi Tiết Bệnh Án -->
+<div id="viewRecordModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Chi Tiết Bệnh Án</h3>
+            <span class="close-btn" onclick="document.getElementById('viewRecordModal').style.display='none'">&times;</span>
+        </div>
+        <div class="modal-body" id="viewRecordContent">
+            <div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="document.getElementById('viewRecordModal').style.display='none'">Đóng</button>
+        </div>
+    </div>
+</div>
+
+<script src="../assets/js/bacsi.js"></script>
     <script>
         // --- 1. JS XỬ LÝ LỊCH LÀM VIỆC DYNAMIC ---
         let currentWeekOffset = 0;
@@ -562,11 +628,25 @@ $count_pending = count($pending);
                     for (let i = 1; i <= 7; i++) {
                         const cellSang = document.getElementById(`cell-Sang-${i}`);
                         const sVal = data.schedule['Sang'][i];
-                        cellSang.innerHTML = (sVal === 'active') ? '<div class="work-slot-badge morning">TRỰC</div>' : (sVal === 'leave' ? '<div class="work-slot-badge leave-slot">NGHỈ</div>' : '<div class="empty-slot">-</div>');
+                        
+                        if (sVal && sVal.status === 'active') {
+                            cellSang.innerHTML = `<div class="work-slot-badge morning">TRỰC<br><small>${sVal.bed}</small></div>`;
+                        } else if (sVal === 'leave' || (sVal && sVal.status === 'leave')) {
+                            cellSang.innerHTML = '<div class="work-slot-badge leave-slot">NGHỈ</div>';
+                        } else {
+                            cellSang.innerHTML = '<div class="empty-slot">-</div>';
+                        }
                         
                         const cellChieu = document.getElementById(`cell-Chieu-${i}`);
                         const cVal = data.schedule['Chieu'][i];
-                        cellChieu.innerHTML = (cVal === 'active') ? '<div class="work-slot-badge afternoon">TRỰC</div>' : (cVal === 'leave' ? '<div class="work-slot-badge leave-slot">NGHỈ</div>' : '<div class="empty-slot">-</div>');
+                        
+                        if (cVal && cVal.status === 'active') {
+                            cellChieu.innerHTML = `<div class="work-slot-badge afternoon">TRỰC<br><small>${cVal.bed}</small></div>`;
+                        } else if (cVal === 'leave' || (cVal && cVal.status === 'leave')) {
+                            cellChieu.innerHTML = '<div class="work-slot-badge leave-slot">NGHỈ</div>';
+                        } else {
+                            cellChieu.innerHTML = '<div class="empty-slot">-</div>';
+                        }
                     }
                 } else { alert('Lỗi tải lịch: ' + data.message); }
             } catch (error) { console.error('Error:', error); document.getElementById('currentWeekLabel').innerText = 'Lỗi kết nối!'; }
@@ -626,7 +706,9 @@ $count_pending = count($pending);
                         if(oldLbl) oldLbl.remove();
 
                         // Check status từ API
-                        const status = scheduleData[shiftType] ? scheduleData[shiftType][phpIndex] : null;
+                        let val = scheduleData[shiftType] ? scheduleData[shiftType][phpIndex] : null;
+                        let status = val;
+                        if (val && typeof val === 'object') status = val.status;
                         
                         if (status === 'active') {
                             chk.checked = true;
@@ -695,6 +777,48 @@ $count_pending = count($pending);
             document.getElementById('record_appt_id').value = id;
             document.getElementById('record_patient_name').innerText = name;
             document.getElementById('medicalRecordModal').style.display = 'block';
+        }
+
+        function openRescheduleModal(id, name) {
+            document.getElementById('reschApptId').value = id;
+            document.getElementById('reschPatientName').innerText = name;
+            document.getElementById('rescheduleModal').style.display = 'block';
+        }
+
+        async function viewMedicalRecord(id) {
+            const modal = document.getElementById('viewRecordModal');
+            const content = document.getElementById('viewRecordContent');
+            modal.style.display = 'block';
+            content.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div>';
+
+            try {
+                const response = await fetch(`../controllers/get_medical_record.php?id=${id}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    content.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                } else {
+                    content.innerHTML = `
+                        <div class="record-detail">
+                            <div class="mr-group"><span class="mr-label">Ngày khám:</span> <span class="mr-value">${data.ngay_tao}</span></div>
+                            <div class="mr-group"><span class="mr-label">Bệnh nhân:</span> <span class="mr-value">${data.ten_benhnhan}</span></div>
+                            <div class="mr-group"><span class="mr-label">Bác sĩ khám:</span> <span class="mr-value">${data.ten_bacsi}</span></div>
+                            <div class="mr-group"><span class="mr-label">Dịch vụ:</span> <span class="mr-value">${data.ten_dich_vu}</span></div>
+                            <div class="mr-group" style="background:#e8f5e9; padding:10px; border-radius:5px;">
+                                <span class="mr-label" style="color:#2e7d32;">Chẩn đoán / Kết quả:</span> 
+                                <div class="mr-value" style="font-weight:500;">${data.chan_doan}</div>
+                            </div>
+                            <div class="mr-group" style="background:#fff3e0; padding:10px; border-radius:5px;">
+                                <span class="mr-label" style="color:#ef6c00;">Ghi chú / Đơn thuốc:</span> 
+                                <div class="mr-value">${data.ghi_chu_bac_si || 'Không có ghi chú'}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error(error);
+                content.innerHTML = '<div class="alert alert-danger">Lỗi kết nối!</div>';
+            }
         }
 
         function previewImage(input) {

@@ -1,5 +1,4 @@
 <?php
-// src/banggia.php
 session_start();
 require '../config/db_connect.php';
 

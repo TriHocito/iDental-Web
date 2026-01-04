@@ -156,4 +156,13 @@ body {
     #schedule .data-table tr { display: table-row; }
     #schedule .data-table td { display: table-cell; text-align: center; }
     #schedule .data-table td:before { content: none; }
-}
+}/ *  
+ S i d e b a r  
+ O v e r l a y  
+ * /  
+ . s i d e b a r - o v e r l a y  
+   d i s p l a y :   n o n e ;   p o s i t i o n :   f i x e d ;   t o p :   0 ;   l e f t :   0 ;   w i d t h :   1 0 0 % ;    
+ h e i g h t :   1 0 0 % ;   b a c k g r o u n d :   r g b a ( 0 , 0 , 0 , 0 . 5 ) ;   z - i n d e x :   4 0 ;    
+ . s i d e b a r - o v e r l a y . s h o w  
+   d i s p l a y :   b l o c k ;    
+ 

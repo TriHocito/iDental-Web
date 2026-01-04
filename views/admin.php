@@ -61,7 +61,7 @@ foreach($leave_data as $l) {
     $leave_map[$l['ngay_nghi']][$l['ca_nghi']][] = $l['id_bacsi']; 
 }
 
-$schedule_data = $conn->prepare("SELECT llv.*, bs.ten_day_du FROM lichlamviec llv JOIN bacsi bs ON llv.id_bacsi = bs.id_bacsi WHERE llv.ngay_hieu_luc BETWEEN ? AND ? ORDER BY llv.gio_bat_dau");
+$schedule_data = $conn->prepare("SELECT llv.*, bs.ten_day_du, gb.ten_giuong FROM lichlamviec llv JOIN bacsi bs ON llv.id_bacsi = bs.id_bacsi JOIN giuongbenh gb ON llv.id_giuongbenh = gb.id_giuongbenh WHERE llv.ngay_hieu_luc BETWEEN ? AND ? ORDER BY llv.gio_bat_dau");
 $schedule_data->execute([$start_date, $end_date]);
 $sch_rows = $schedule_data->fetchAll(PDO::FETCH_ASSOC);
 
@@ -76,7 +76,12 @@ $day_names = ['Mon'=>'Thứ 2', 'Tue'=>'Thứ 3', 'Wed'=>'Thứ 4', 'Thu'=>'Th�
 foreach ($sch_rows as $r) {
     $d = $r['ngay_hieu_luc'];
     $shift = (date('H', strtotime($r['gio_bat_dau'])) < 12) ? 'Sang' : 'Chieu';
-    $doc_name = $r['ten_day_du'];
+    
+    // Format bed name
+    $bed_name = $r['ten_giuong'];
+    $bed_short = preg_replace('/Giường (số )?/', 'G', $bed_name);
+    
+    $doc_name = $r['ten_day_du'] . "<br><small>" . $bed_short . "</small>";
     $is_off = false;
     
     // Kiểm tra xem bác sĩ có nghỉ ca này không
@@ -133,11 +138,13 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
             <a class="menu-link" onclick="showSection('services')"><i class="fas fa-list-ul"></i> Dịch Vụ</a>
         </nav>
     </div>
+    
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
 
     <div class="main-content-wrapper">
         <header class="header">
             <div class="header-left">
-                <button class="toggle-sidebar-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+                <button class="toggle-sidebar-btn"><i class="fas fa-bars"></i></button>
                 <h3>Khu vực quản trị</h3>
             </div>
             <div class="user-profile" onclick="openModal('profileModal')">
@@ -257,7 +264,7 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
             <div id="schedule" class="content-section">
                 <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
                     <h2>Lịch Làm Việc</h2>
-                    <button class="btn btn-primary" onclick="openModal('addScheduleModal')"><i class="fas fa-plus"></i> Thêm Lịch</button>
+                    <button class="btn btn-primary" style="padding: 5px 10px; font-size: 0.9em;" onclick="openModal('addScheduleModal')"><i class="fas fa-plus"></i> Thêm Lịch</button>
                 </div>
                 <?php if(!empty($schedule_requests)): ?>
                 <div style="margin-bottom:20px;">
@@ -296,8 +303,8 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                     </div>
                 </form>
 
-                <div id="scheduleTableWrap" class="table-container">
-                    <table class="data-table" style="text-align:center;">
+                <div id="scheduleTableWrap" class="table-container" style="overflow-x: auto;">
+                    <table class="data-table" style="text-align:center; min-width: 800px;">
                         <thead>
                             <tr>
                                 <th style="width:100px;">Ca</th>
@@ -341,10 +348,10 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                         <tbody>
                             <?php foreach($admins as $ad): ?>
                             <tr>
-                                <td><?php echo $ad['id_quantrivien']; ?></td>
-                                <td><?php echo htmlspecialchars($ad['ten_dang_nhap']); ?></td>
-                                <td><?php echo htmlspecialchars($ad['ten_day_du']); ?></td>
-                                <td>
+                                <td data-label="ID"><?php echo $ad['id_quantrivien']; ?></td>
+                                <td data-label="Username"><?php echo htmlspecialchars($ad['ten_dang_nhap']); ?></td>
+                                <td data-label="Họ tên"><?php echo htmlspecialchars($ad['ten_day_du']); ?></td>
+                                <td data-label="Tác vụ">
                                     <?php if($ad['id_quantrivien'] != 1): ?>
                                     <a href="../controllers/admin_actions.php?action=delete_admin&id=<?php echo $ad['id_quantrivien']; ?>" class="btn-icon text-danger" onclick="return confirm('Xóa admin này?')"><i class="fas fa-trash"></i></a>
                                     <?php else: ?>
@@ -375,8 +382,8 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                                     <td data-label="Ngày"><?php echo date('d/m/Y', strtotime($l['ngay_nghi'])) . ' (' . $l['ca_nghi'] . ')'; ?></td>
                                     <td data-label="Lý do"><?php echo $l['ly_do']; ?></td>
                                     <td data-label="Thao tác">
-                                        <a href="../controllers/admin_actions.php?action=approve_leave&id=<?php echo $l['id_yeucau']; ?>" class="btn btn-success">Duyệt</a>
-                                        <a href="../controllers/admin_actions.php?action=reject_leave&id=<?php echo $l['id_yeucau']; ?>" class="btn btn-danger">Từ chối</a>
+                                        <button onclick="checkLeaveConflicts(<?php echo $l['id_yeucau']; ?>, <?php echo $l['id_bacsi']; ?>, '<?php echo $l['ten_day_du']; ?>', '<?php echo $l['ngay_nghi']; ?>', '<?php echo $l['ca_nghi']; ?>')" class="btn btn-success">Duyệt</button>
+                                        <a href="../controllers/admin_actions.php?action=reject_leave&id=<?php echo $l['id_yeucau']; ?>" class="btn btn-danger" onclick="return confirm('Từ chối yêu cầu này?')">Từ chối</a>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -392,12 +399,12 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                             <tbody>
                                 <?php foreach($conflicts as $c): ?>
                                 <tr>
-                                    <td><?php echo $c['ten_bn']; ?><br><small><?php echo $c['sdt']; ?></small></td>
-                                    <td class="text-danger"><?php echo date('H:i d/m', strtotime($c['ngay_gio_hen'])); ?></td>
-                                    <td><?php echo $c['ten_bs']; ?> (Ca: <?php echo $c['ca_nghi']; ?>)</td>
-                                    <td>
-                                        <button class="btn btn-primary" onclick="openSwitchDoctorModal(<?php echo $c['id_lichhen']; ?>, '<?php echo $c['ten_bn']; ?>')">Đổi BS</button>
-                                        <a href="../controllers/admin_actions.php?action=cancel_conflict_appt&id=<?php echo $c['id_lichhen']; ?>" class="btn btn-danger">Hủy</a>
+                                    <td data-label="Khách hàng"><?php echo $c['ten_bn']; ?><br><small><?php echo $c['sdt']; ?></small></td>
+                                    <td data-label="Ngày giờ" class="text-danger"><?php echo date('H:i d/m', strtotime($c['ngay_gio_hen'])); ?></td>
+                                    <td data-label="Bác sĩ (Nghỉ)"><?php echo $c['ten_bs']; ?> (Ca: <?php echo $c['ca_nghi']; ?>)</td>
+                                    <td data-label="Hành động">
+                                        <button class="btn btn-primary" onclick="openSwitchDoctorModal(<?php echo $c['id_lichhen']; ?>, '<?php echo $c['ten_bn']; ?>', '<?php echo $c['ngay_gio_hen']; ?>', <?php echo $c['id_bacsi']; ?>)">Đổi BS</button>
+                                        <a href="../controllers/admin_actions.php?action=cancel_conflict_appt&id=<?php echo $c['id_lichhen']; ?>" class="btn btn-danger" onclick="return confirm('Hủy lịch hẹn này?')">Hủy</a>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
@@ -418,10 +425,10 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                         <tbody>
                             <?php foreach($services as $s): ?>
                             <tr>
-                                <td><?php echo $s['ten_dich_vu']; ?></td>
-                                <td class="text-success"><?php echo number_format($s['gia_tien']); ?>đ</td>
-                                <td><?php echo $s['thoi_gian_phut']; ?>p</td>
-                                <td>
+                                <td data-label="Tên"><?php echo $s['ten_dich_vu']; ?></td>
+                                <td data-label="Giá" class="text-success"><?php echo number_format($s['gia_tien']); ?>đ</td>
+                                <td data-label="Thời gian"><?php echo $s['thoi_gian_phut']; ?>p</td>
+                                <td data-label="Tác vụ">
                                     <button class="btn-icon" onclick='openServiceModal("edit", <?php echo json_encode($s); ?>)'><i class="fas fa-pen"></i></button>
                                     <a href="../controllers/admin_actions.php?action=delete_service&id=<?php echo $s['id_dichvu']; ?>" class="btn-icon text-danger" onclick="return confirm('Xóa?')"><i class="fas fa-trash"></i></a>
                                 </td>
@@ -590,16 +597,46 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
 
 <div id="switchDoctorModal" class="modal">
     <div class="modal-content">
-        <div class="modal-header"><h3>Đổi Bác Sĩ</h3><span class="close-btn" onclick="closeModal('switchDoctorModal')">&times;</span></div>
+        <div class="modal-header"><h3>Chuyển Bác Sĩ</h3><span class="close-btn" onclick="closeModal('switchDoctorModal')">&times;</span></div>
         <form action="../controllers/admin_actions.php" method="POST" class="modal-body">
             <input type="hidden" name="action" value="switch_doctor">
             <input type="hidden" name="id_lichhen" id="switchApptId">
-            <p>Bệnh nhân: <strong id="switchPatientName"></strong></p>
-            <div class="form-group"><label>Chọn Bác sĩ mới:</label>
-                <select name="new_doctor_id" class="form-control" required><?php foreach($doctors as $d): if(isset($d['trang_thai']) && $d['trang_thai']==0) continue; ?><option value="<?php echo $d['id_bacsi']; ?>"><?php echo $d['ten_day_du']; ?></option><?php endforeach; ?></select>
+            <p>Khách hàng: <strong id="switchPatientName"></strong></p>
+            <p>Thời gian: <strong id="switchApptTime"></strong></p>
+            
+            <div class="form-group">
+                <label>Chọn Bác sĩ thay thế:</label>
+                <select name="new_doctor_id" id="switchNewDoctor" class="form-control" required>
+                    <option value="">-- Đang tải danh sách... --</option>
+                </select>
+                <small class="text-muted" id="switchDocMsg"></small>
             </div>
-            <button class="btn btn-primary" style="width:100%">Lưu</button>
+            <button class="btn btn-primary" style="width:100%" id="btnSwitchDoc" disabled>Lưu Thay Đổi</button>
         </form>
+    </div>
+</div>
+
+<div id="approveLeaveModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header"><h3 class="text-warning"><i class="fas fa-exclamation-triangle"></i> Cảnh Báo Xung Đột</h3><span class="close-btn" onclick="closeModal('approveLeaveModal')">&times;</span></div>
+        <div class="modal-body">
+            <p>Bạn đang duyệt yêu cầu nghỉ phép cho Bác sĩ <strong id="warnDocName"></strong>.</p>
+            <p>Thời gian: <strong id="warnTime"></strong></p>
+            
+            <div id="conflictWarning" class="alert-danger" style="display:none; padding:10px; margin:10px 0; border-radius:5px;">
+                <strong>CẢNH BÁO:</strong> Việc duyệt yêu cầu này sẽ gây ra <strong id="conflictCount" style="font-size:1.2em">0</strong> xung đột lịch hẹn!
+                <p><small>Các lịch hẹn này sẽ được chuyển sang tab "Xung Đột" để bạn xử lý thủ công.</small></p>
+            </div>
+            
+            <div id="noConflictMsg" class="alert-success" style="display:none; padding:10px; margin:10px 0; border-radius:5px;">
+                <i class="fas fa-check-circle"></i> Không phát hiện xung đột nào. An toàn để duyệt.
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+                <button class="btn btn-secondary" onclick="closeModal('approveLeaveModal')">Hủy bỏ</button>
+                <a href="#" id="btnConfirmApprove" class="btn btn-success">Xác nhận Duyệt</a>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -621,7 +658,35 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
 <div id="patientHistoryModal" class="modal">
     <div class="modal-content">
         <div class="modal-header"><h3 id="histPatName">Lịch sử</h3><span class="close-btn" onclick="closeModal('patientHistoryModal')">&times;</span></div>
-        <div class="modal-body"><table class="data-table"><tbody id="histBody"></tbody></table></div>
+        <div class="modal-body"><table class="data-table"><thead><tr><th>Ngày giờ</th><th>Dịch vụ</th><th>Trạng thái</th></tr></thead><tbody id="histBody"></tbody></table></div>
+    </div>
+</div>
+
+<div id="rescheduleModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header"><h3>Đổi Lịch Hẹn</h3><span class="close-btn" onclick="closeModal('rescheduleModal')">&times;</span></div>
+        <form action="../controllers/admin_actions.php" method="POST" class="modal-body">
+            <input type="hidden" name="action" value="reschedule_appointment_admin">
+            <input type="hidden" name="id_lichhen" id="reschApptId">
+            <p>Bệnh nhân: <strong id="reschPatientName"></strong></p>
+            
+            <div class="form-group">
+                <label>Ngày mới:</label>
+                <input type="date" name="new_date" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
+            </div>
+            <div class="form-group">
+                <label>Ca mới:</label>
+                <select name="new_shift" class="form-control" required>
+                    <option value="Sang">Sáng (08:00 - 12:00)</option>
+                    <option value="Chieu">Chiều (13:00 - 17:00)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Lý do thay đổi (Gửi mail cho khách):</label>
+                <textarea name="reason" class="form-control" rows="3" placeholder="Ví dụ: Bác sĩ có việc đột xuất..."></textarea>
+            </div>
+            <button class="btn btn-primary" style="width:100%">Lưu Thay Đổi</button>
+        </form>
     </div>
 </div>
 
@@ -702,10 +767,10 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
             
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${days[i]}</td>
-                <td>${displayDate}</td>
-                <td><input type="checkbox" name="shifts[${dateStr}][Sang]" value="1" class="shift-check"></td>
-                <td><input type="checkbox" name="shifts[${dateStr}][Chieu]" value="1" class="shift-check"></td>
+                <td data-label="Thứ">${days[i]}</td>
+                <td data-label="Ngày">${displayDate}</td>
+                <td data-label="Sáng"><input type="checkbox" name="shifts[${dateStr}][Sang]" value="1" class="shift-check"></td>
+                <td data-label="Chiều"><input type="checkbox" name="shifts[${dateStr}][Chieu]" value="1" class="shift-check"></td>
             `;
             tbody.appendChild(tr);
         }
@@ -779,10 +844,103 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
         return true;
     }
 
-    function openSwitchDoctorModal(id, name) {
-        document.getElementById('switchApptId').value = id;
-        document.getElementById('switchPatientName').innerText = name;
+    function checkLeaveConflicts(reqId, docId, docName, date, shift) {
+        document.getElementById('warnDocName').innerText = docName;
+        document.getElementById('warnTime').innerText = date + ' (' + shift + ')';
+        
+        const warnBox = document.getElementById('conflictWarning');
+        const safeBox = document.getElementById('noConflictMsg');
+        const btn = document.getElementById('btnConfirmApprove');
+        const countSpan = document.getElementById('conflictCount');
+        
+        warnBox.style.display = 'none';
+        safeBox.style.display = 'none';
+        btn.style.pointerEvents = 'none';
+        btn.style.opacity = '0.5';
+        btn.innerText = 'Đang kiểm tra...';
+        
+        document.getElementById('approveLeaveModal').style.display = 'block';
+        
+        fetch(`../controllers/admin_actions.php?action=check_leave_conflicts&id_bacsi=${docId}&date=${date}&shift=${shift}`)
+        .then(res => res.json())
+        .then(data => {
+            btn.style.pointerEvents = 'auto';
+            btn.style.opacity = '1';
+            btn.innerText = 'Xác nhận Duyệt';
+            btn.href = `../controllers/admin_actions.php?action=approve_leave&id=${reqId}`;
+            
+            if (data.count > 0) {
+                countSpan.innerText = data.count;
+                warnBox.style.display = 'block';
+            } else {
+                safeBox.style.display = 'block';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Lỗi khi kiểm tra xung đột!');
+            closeModal('approveLeaveModal');
+        });
+    }
+
+    function openSwitchDoctorModal(apptId, patientName, datetime, currentDocId) {
+        document.getElementById('switchApptId').value = apptId;
+        document.getElementById('switchPatientName').innerText = patientName;
+        
+        const dateObj = new Date(datetime);
+        const dateStr = dateObj.toISOString().split('T')[0];
+        const hour = dateObj.getHours();
+        const shift = (hour < 12) ? 'Sang' : 'Chieu';
+        const displayTime = `${hour}:${String(dateObj.getMinutes()).padStart(2,'0')} ${dateObj.getDate()}/${dateObj.getMonth()+1}/${dateObj.getFullYear()}`;
+        
+        document.getElementById('switchApptTime').innerText = displayTime;
         document.getElementById('switchDoctorModal').style.display = 'block';
+        
+        const select = document.getElementById('switchNewDoctor');
+        const msg = document.getElementById('switchDocMsg');
+        const btn = document.getElementById('btnSwitchDoc');
+        
+        select.innerHTML = '<option value="">-- Đang tải danh sách... --</option>';
+        select.disabled = true;
+        btn.disabled = true;
+        msg.innerText = '';
+        
+        fetch(`../controllers/admin_actions.php?action=get_available_doctors_for_switch&date=${dateStr}&shift=${shift}&exclude_id=${currentDocId}`)
+        .then(res => res.json())
+        .then(data => {
+            select.innerHTML = '<option value="">-- Chọn bác sĩ thay thế --</option>';
+            if (data.length > 0) {
+                data.forEach(d => {
+                    let statusText = '';
+                    if (d.has_schedule) {
+                        statusText = ' (Đang làm việc)';
+                    } else {
+                        statusText = ' (Sẽ thêm lịch)';
+                    }
+                    
+                    const opt = document.createElement('option');
+                    opt.value = d.id_bacsi;
+                    opt.textContent = `${d.ten_day_du} - ${d.chuyen_khoa}${statusText}`;
+                    
+                    // Highlight doctors who are already working
+                    if (d.has_schedule) {
+                        opt.style.fontWeight = 'bold';
+                        opt.style.color = '#2e7d32'; // Green
+                    }
+                    
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                btn.disabled = false;
+            } else {
+                select.innerHTML = '<option value="">-- Không có bác sĩ nào rảnh --</option>';
+                msg.innerText = 'Tất cả bác sĩ khác đều đang nghỉ hoặc bị khóa.';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            select.innerHTML = '<option value="">Lỗi tải danh sách</option>';
+        });
     }
 
     function onWeekChange(select) {

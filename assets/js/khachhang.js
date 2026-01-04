@@ -1,5 +1,25 @@
 // assets/js/khachhang.js
 
+document.addEventListener("DOMContentLoaded", function() {
+    const toggleBtn = document.getElementById('sidebarToggle');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+
+    if (toggleBtn && sidebar) {
+        toggleBtn.addEventListener('click', function() {
+            sidebar.classList.toggle('show');
+            if (overlay) overlay.classList.toggle('show');
+        });
+    }
+    
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('show');
+            overlay.classList.remove('show');
+        });
+    }
+});
+
 // 1. NAVIGATION (Chuyển Tab)
 function switchTab(tabId, el) {
     document.querySelectorAll('.content-section').forEach(e => e.classList.remove('active'));

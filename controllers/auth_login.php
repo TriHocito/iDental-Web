@@ -36,7 +36,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // --- KIỂM TRA TÀI KHOẢN BỊ KHÓA ---
         if (isset($user['trang_thai']) && $user['trang_thai'] == 0) {
             
-            // Nếu là Bác sĩ và có email, thực hiện gửi mail thông báo
             if ($role === 'doctor' && !empty($user['email'])) {
                 sendAccountLockNotification($user['email'], $user['ten_day_du']);
             }

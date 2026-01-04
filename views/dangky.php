@@ -1,5 +1,4 @@
 <?php
-// views/dangky.php
 session_start();
 ?>
 <!DOCTYPE html>

@@ -146,7 +146,7 @@ try {
                 $leave_map[$l['ngay_nghi']][$l['ca_nghi']][] = $l['id_bacsi'];
             }
 
-            $schedule_stmt = $conn->prepare("SELECT llv.*, bs.ten_day_du FROM lichlamviec llv JOIN bacsi bs ON llv.id_bacsi = bs.id_bacsi WHERE llv.ngay_hieu_luc BETWEEN ? AND ? ORDER BY llv.gio_bat_dau");
+            $schedule_stmt = $conn->prepare("SELECT llv.*, bs.ten_day_du, gb.ten_giuong FROM lichlamviec llv JOIN bacsi bs ON llv.id_bacsi = bs.id_bacsi JOIN giuongbenh gb ON llv.id_giuongbenh = gb.id_giuongbenh WHERE llv.ngay_hieu_luc BETWEEN ? AND ? ORDER BY llv.gio_bat_dau");
             $schedule_stmt->execute([$from, $to]);
             $sch_rows = $schedule_stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -157,8 +157,13 @@ try {
                 $d = $r['ngay_hieu_luc'];
                 $shift = (date('H', strtotime($r['gio_bat_dau'])) < 12) ? 'Sang' : 'Chieu';
                 $is_off = (isset($leave_map[$d][$shift]) && in_array($r['id_bacsi'], $leave_map[$d][$shift]));
+                
+                // Format bed name (e.g., "Giường 1" -> "G1", "Giường số 1" -> "G1")
+                $bed_name = $r['ten_giuong'];
+                $bed_short = preg_replace('/Giường (số )?/', 'G', $bed_name);
+                
                 $schedule_map[$shift][$d][] = [
-                    'name' => $r['ten_day_du'] . ($is_off ? ' (Nghỉ)' : ''),
+                    'name' => $r['ten_day_du'] . "<br><small>" . $bed_short . "</small>" . ($is_off ? ' (Nghỉ)' : ''),
                     'is_off' => $is_off
                 ];
             }
@@ -243,6 +248,64 @@ try {
         exit(); 
     }
 
+    if ($action == 'check_leave_conflicts') {
+        header('Content-Type: application/json');
+        $id_bacsi = $_GET['id_bacsi'];
+        $date = $_GET['date'];
+        $shift = $_GET['shift']; // 'Sang' or 'Chieu'
+
+        $sql = "SELECT COUNT(*) FROM lichhen 
+                WHERE id_bacsi = ? 
+                AND DATE(ngay_gio_hen) = ? 
+                AND (
+                    (HOUR(ngay_gio_hen) < 12 AND ? = 'Sang') 
+                    OR 
+                    (HOUR(ngay_gio_hen) >= 12 AND ? = 'Chieu')
+                )
+                AND trang_thai IN ('da_xac_nhan', 'cho_xac_nhan')";
+        
+        $stmt = $conn->prepare($sql);
+        $stmt->execute([$id_bacsi, $date, $shift, $shift]);
+        $count = $stmt->fetchColumn();
+        
+        echo json_encode(['count' => $count]);
+        exit();
+    }
+
+    if ($action == 'get_available_doctors_for_switch') {
+        header('Content-Type: application/json');
+        $date = $_GET['date'];
+        $shift = $_GET['shift']; // 'Sang' or 'Chieu'
+        $exclude_id = $_GET['exclude_id'] ?? 0;
+
+        // 1. Get all active doctors excluding current one
+        $sql = "SELECT id_bacsi, ten_day_du, chuyen_khoa FROM bacsi WHERE trang_thai = 1 AND id_bacsi != ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->execute([$exclude_id]);
+        $doctors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $available_doctors = [];
+        
+        foreach ($doctors as $doc) {
+            // 2. Check if on leave
+            $chkLeave = $conn->prepare("SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi=? AND ngay_nghi=? AND ca_nghi=? AND trang_thai='da_duyet'");
+            $chkLeave->execute([$doc['id_bacsi'], $date, $shift]);
+            if ($chkLeave->rowCount() > 0) continue; // Skip if on leave
+
+            // 3. Check if has schedule (Optional info)
+            $start = ($shift == 'Sang') ? '08:00:00' : '13:00:00';
+            $chkWork = $conn->prepare("SELECT id_lichlamviec FROM lichlamviec WHERE id_bacsi=? AND ngay_hieu_luc=? AND gio_bat_dau=?");
+            $chkWork->execute([$doc['id_bacsi'], $date, $start]);
+            $has_schedule = ($chkWork->rowCount() > 0);
+
+            $doc['has_schedule'] = $has_schedule;
+            $available_doctors[] = $doc;
+        }
+
+        echo json_encode($available_doctors);
+        exit();
+    }
+
     // =============================================================
     // GROUP B: FORM ACTIONS & LOGIC
     // =============================================================
@@ -304,7 +367,6 @@ try {
                 $checkDoc->execute([$id_bs, $date, $start]);
                 if ($checkDoc->rowCount() > 0) { $failed++; continue; } // Skip if doctor already busy
 
-                // [LOGIC FIX] Check if doctor is on leave (Approved Leave)
                 $checkLeave = $conn->prepare("SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi=? AND ngay_nghi=? AND ca_nghi=? AND trang_thai='da_duyet'");
                 $checkLeave->execute([$id_bs, $date, $shift_code]);
                 if ($checkLeave->rowCount() > 0) { $failed++; continue; } // Skip if doctor is on leave
@@ -464,7 +526,6 @@ try {
     elseif ($action == 'approve_appointment') {
         $id_lichhen = $_GET['id'];
         
-        // [BỔ SUNG] Kiểm tra và tự động thêm lịch làm việc nếu chưa có
         $stmt_check = $conn->prepare("SELECT id_bacsi, ngay_gio_hen FROM lichhen WHERE id_lichhen = ?");
         $stmt_check->execute([$id_lichhen]);
         $appt = $stmt_check->fetch(PDO::FETCH_ASSOC);
@@ -474,7 +535,6 @@ try {
             $ngay_hen = date('Y-m-d', strtotime($appt['ngay_gio_hen']));
             $gio_hen = date('H:i:s', strtotime($appt['ngay_gio_hen']));
             
-            // Xác định ca
             if ($gio_hen < '12:00:00') {
                 $gio_bat_dau = '08:00:00';
                 $gio_ket_thuc = '12:00:00';
@@ -483,14 +543,13 @@ try {
                 $gio_ket_thuc = '17:00:00';
             }
 
-            // Kiểm tra lịch làm việc
             $sql_check_schedule = "SELECT id_lichlamviec FROM lichlamviec 
                                    WHERE id_bacsi = ? AND ngay_hieu_luc = ? AND gio_bat_dau = ?";
             $stmt_schedule = $conn->prepare($sql_check_schedule);
             $stmt_schedule->execute([$id_bacsi_appt, $ngay_hen, $gio_bat_dau]);
 
             if ($stmt_schedule->rowCount() == 0) {
-                // [LOGIC FIX] Check if doctor is on leave before auto-scheduling
+
                 $shift_code_check = ($gio_bat_dau == '08:00:00') ? 'Sang' : 'Chieu';
                 $chkLeave = $conn->prepare("SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi=? AND ngay_nghi=? AND ca_nghi=? AND trang_thai='da_duyet'");
                 $chkLeave->execute([$id_bacsi_appt, $ngay_hen, $shift_code_check]);
@@ -500,7 +559,6 @@ try {
                     exit();
                 }
 
-                // Chưa có lịch -> Tự động thêm
                 $bed = getAvailableBed($conn, $ngay_hen, $gio_bat_dau, $gio_ket_thuc);
                 
                 if ($bed) {
@@ -529,8 +587,7 @@ try {
         if($info['email']) sendAbsenceNotification($info['email'], $info['ten_day_du'], date('H:i d/m/Y', strtotime($info['ngay_gio_hen'])), $info['ten_bs']);
         echo "<script>alert('Đã hủy lịch!'); location.href='../views/admin.php#appointments';</script>";
     }
-    
-    // B4. SWITCH DOCTOR
+
     elseif ($action == 'switch_doctor') {
         $id_lichhen = $_POST['id_lichhen'];
         $new_doc_id = $_POST['new_doctor_id'];
@@ -584,7 +641,6 @@ try {
         echo "<script>alert('Thêm Admin thành công'); location.href='../views/admin.php#admins';</script>";
     }
     
-    // [CẬP NHẬT] XỬ LÝ LỖI KHÔNG THỂ XÓA ADMIN CÓ RÀNG BUỘC KHÓA NGOẠI
     elseif ($action == 'delete_admin') {
         $del_id = $_GET['id'];
         if($del_id == 1 || $del_id == $id_quantrivien) { 
@@ -596,14 +652,13 @@ try {
             $conn->prepare("DELETE FROM quantrivien WHERE id_quantrivien=?")->execute([$del_id]);
             echo "<script>alert('Đã xóa Admin!'); location.href='../views/admin.php#admins';</script>";
         } catch (PDOException $e) {
-            // Ràng buộc khóa ngoại (Integrity constraint violation: 1451)
             if ($e->getCode() == '23000') {
                 echo "<script>
                     alert('KHÔNG THỂ XÓA: Tài khoản Admin này đã tham gia tạo dữ liệu (Lịch làm việc, Bác sĩ, v.v...) trong hệ thống.\\n\\nĐể bảo toàn dữ liệu, bạn không thể xóa tài khoản này.');
                     window.location.href='../views/admin.php#admins';
                 </script>";
             } else {
-                throw $e; // Ném lỗi khác để catch tổng bên dưới xử lý
+                throw $e; 
             }
         }
     }
@@ -628,11 +683,25 @@ try {
     elseif ($action == 'delete_service') { try { $conn->prepare("DELETE FROM dichvu WHERE id_dichvu=?")->execute([$_GET['id']]); echo "<script>alert('Đã xóa'); location.href='../views/admin.php#services';</script>"; } catch(Exception $e) { echo "<script>alert('Dịch vụ đang được sử dụng!'); location.href='../views/admin.php#services';</script>"; } }
     
     elseif ($action == 'approve_leave') {
-        $conn->prepare("UPDATE yeucaunghi SET trang_thai='da_duyet', id_quantrivien_duyet=? WHERE id_yeucau=?")->execute([$id_quantrivien, $_GET['id']]);
+        $id = $_GET['id'];
+        $req = $conn->query("SELECT y.*, b.email, b.ten_day_du FROM yeucaunghi y JOIN bacsi b ON y.id_bacsi = b.id_bacsi WHERE y.id_yeucau=$id")->fetch();
+        
+        $conn->prepare("UPDATE yeucaunghi SET trang_thai='da_duyet', id_quantrivien_duyet=? WHERE id_yeucau=?")->execute([$id_quantrivien, $id]);
+        
+        if ($req && $req['email']) {
+            sendLeaveStatusNotification($req['email'], $req['ten_day_du'], date('d/m/Y', strtotime($req['ngay_nghi'])), $req['ca_nghi'], 'da_duyet');
+        }
         echo "<script>alert('Đã duyệt nghỉ phép!'); location.href='../views/admin.php#requests';</script>";
     }
     elseif ($action == 'reject_leave') {
-        $conn->prepare("UPDATE yeucaunghi SET trang_thai='tu_choi', id_quantrivien_duyet=? WHERE id_yeucau=?")->execute([$id_quantrivien, $_GET['id']]);
+        $id = $_GET['id'];
+        $req = $conn->query("SELECT y.*, b.email, b.ten_day_du FROM yeucaunghi y JOIN bacsi b ON y.id_bacsi = b.id_bacsi WHERE y.id_yeucau=$id")->fetch();
+        
+        $conn->prepare("UPDATE yeucaunghi SET trang_thai='tu_choi', id_quantrivien_duyet=? WHERE id_yeucau=?")->execute([$id_quantrivien, $id]);
+        
+        if ($req && $req['email']) {
+            sendLeaveStatusNotification($req['email'], $req['ten_day_du'], date('d/m/Y', strtotime($req['ngay_nghi'])), $req['ca_nghi'], 'tu_choi');
+        }
         echo "<script>alert('Đã từ chối nghỉ phép!'); location.href='../views/admin.php#requests';</script>";
     }
     elseif ($action == 'cancel_conflict_appt') {

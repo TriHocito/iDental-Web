@@ -22,7 +22,7 @@ $services = $conn->query("SELECT * FROM dichvu")->fetchAll(PDO::FETCH_ASSOC);
 $doctors = $conn->query("SELECT * FROM bacsi WHERE trang_thai = 1")->fetchAll(PDO::FETCH_ASSOC);
 
 // 4. Lấy Lịch Hẹn Sắp Tới
-$sql_upcoming = "SELECT t1.*, t2.ten_day_du AS ten_bacsi, t3.ten_dich_vu 
+$sql_upcoming = "SELECT t1.*, t2.ten_day_du AS ten_bacsi, t2.sdt AS sdt_bacsi, t3.ten_dich_vu 
                  FROM lichhen AS t1
                  JOIN bacsi AS t2 ON t1.id_bacsi = t2.id_bacsi
                  JOIN dichvu AS t3 ON t1.id_dichvu = t3.id_dichvu
@@ -96,7 +96,7 @@ $history_appts->execute([$user_id]);
             <div style="font-weight:700;"><?php echo htmlspecialchars($user['ten_day_du']); ?></div>
             <div style="font-size:0.8em; color:#888;">Khách hàng</div>
         </div>
-        <img src="../assets/img/default-avatar.png" class="avatar" onerror="this.src='https://i.pravatar.cc/150?img=11'">
+        <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($user['ten_day_du']); ?>&background=random&color=fff" class="avatar" alt="Avatar">
         <div id="userMenuDropdown" class="user-dropdown">
             <a href="../controllers/logout.php" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Đăng xuất</a>
         </div>
@@ -125,11 +125,16 @@ $history_appts->execute([$user_id]);
                                 $statusText = ($app['trang_thai'] == 'da_xac_nhan') ? 'Đã xác nhận' : 'Chờ duyệt';
                             ?>
                             <tr>
-                                <td><div style="font-weight:bold; color: var(--primary);"><?php echo date('H:i d/m/Y', strtotime($app['ngay_gio_hen'])); ?></div></td>
-                                <td><?php echo htmlspecialchars($app['ten_dich_vu']); ?></td>
-                                <td>Dr. <?php echo htmlspecialchars($app['ten_bacsi']); ?></td>
-                                <td><span class="badge <?php echo $statusClass; ?>"><?php echo $statusText; ?></span></td>
-                                <td>
+                                <td data-label="Thời gian"><div style="font-weight:bold; color: var(--primary);"><?php echo date('H:i d/m/Y', strtotime($app['ngay_gio_hen'])); ?></div></td>
+                                <td data-label="Dịch vụ"><?php echo htmlspecialchars($app['ten_dich_vu']); ?></td>
+                                <td data-label="Bác sĩ">
+                                    Dr. <?php echo htmlspecialchars($app['ten_bacsi']); ?>
+                                    <div style="font-size: 0.85em; color: #666; margin-top: 4px;">
+                                        <i class="fas fa-phone-alt" style="font-size: 0.8em;"></i> <?php echo htmlspecialchars($app['sdt_bacsi']); ?>
+                                    </div>
+                                </td>
+                                <td data-label="Trạng thái"><span class="badge <?php echo $statusClass; ?>"><?php echo $statusText; ?></span></td>
+                                <td data-label="Thao tác">
                                     <?php if($app['trang_thai'] == 'cho_xac_nhan'): ?>
                                         <a href="../controllers/patient_actions.php?action=cancel_appointment&id=<?php echo $app['id_lichhen']; ?>" 
                                            class="btn btn-danger" 
@@ -139,7 +144,7 @@ $history_appts->execute([$user_id]);
 
                                     <?php elseif($app['trang_thai'] == 'da_xac_nhan'): ?>
                                         <button class="btn" style="background:#eee; color:#999; cursor:not-allowed;" disabled title="Lịch đã được chốt, vui lòng liên hệ phòng khám để đổi/hủy">
-                                            <i class="fas fa-lock"></i> Đã chốt
+                                            <i class="fas fa-lock"></i>
                                         </button>
                                         <div style="font-size:0.8em; color:#888; margin-top:2px;">Liên hệ hotline</div>
 
@@ -154,6 +159,11 @@ $history_appts->execute([$user_id]);
                     <?php else: ?>
                         <p style="text-align:center; color:#888; padding: 20px;">Không có lịch hẹn sắp tới.</p>
                     <?php endif; ?>
+
+                    <div style="margin-top: 20px; padding: 15px; background-color: #e3f2fd; border-left: 5px solid #2196f3; border-radius: 4px; font-size: 0.95em; color: #333;">
+                        <i class="fas fa-info-circle" style="color: #2196f3; margin-right: 5px;"></i> 
+                        <strong>Ghi chú:</strong> Nếu bạn cần thay đổi hoặc hủy lịch hẹn đã chốt, vui lòng liên hệ trực tiếp vào số điện thoại của bác sĩ (hiển thị ở trên) hoặc gọi vào hotline phòng khám: <strong style="color: #d32f2f;">1900 1234</strong> để được hỗ trợ.
+                    </div>
                 </div>
             </div>
 
@@ -169,14 +179,14 @@ $history_appts->execute([$user_id]);
                                 $txt = ($stt == 'hoan_thanh') ? 'Hoàn thành' : 'Đã hủy';
                             ?>
                             <tr>
-                                <td><?php echo date('d/m/Y H:i', strtotime($hist['ngay_gio_hen'])); ?></td>
-                                <td><?php echo htmlspecialchars($hist['ten_dich_vu']); ?></td>
-                                <td>Dr. <?php echo htmlspecialchars($hist['ten_bacsi']); ?></td>
-                                <td><span class="badge <?php echo $cls; ?>"><?php echo $txt; ?></span></td>
-                                <td>
+                                <td data-label="Thời gian"><?php echo date('d/m/Y H:i', strtotime($hist['ngay_gio_hen'])); ?></td>
+                                <td data-label="Dịch vụ"><?php echo htmlspecialchars($hist['ten_dich_vu']); ?></td>
+                                <td data-label="Bác sĩ">Dr. <?php echo htmlspecialchars($hist['ten_bacsi']); ?></td>
+                                <td data-label="Kết quả"><span class="badge <?php echo $cls; ?>"><?php echo $txt; ?></span></td>
+                                <td data-label="Chi tiết">
                                     <?php if($stt == 'hoan_thanh' && !empty($hist['id_benhan'])): ?>
-                                        <button class="btn btn-secondary" onclick="viewMedicalRecord(<?php echo $hist['id_benhan']; ?>)">
-                                            <i class="fas fa-file-medical"></i> Xem Bệnh Án
+                                        <button class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.85em;" onclick="viewMedicalRecord(<?php echo $hist['id_benhan']; ?>)">
+                                            <i class="fas fa-file-medical"></i> Xem
                                         </button>
                                     <?php elseif($stt == 'hoan_thanh'): ?>
                                         <small style="color:#999">Đang cập nhật...</small>
@@ -298,24 +308,34 @@ $history_appts->execute([$user_id]);
 
 <script src="../assets/js/khachhang.js"></script>
 <script>
-    // Hàm xem bệnh án (Giữ nguyên)
+    // Hàm xem bệnh án (Đã cập nhật giao diện đẹp hơn)
     async function viewMedicalRecord(recordId) {
         openModal('medicalRecordModal');
         const contentDiv = document.getElementById('medicalRecordContent');
-        contentDiv.innerHTML = '<div style="text-align:center; padding:20px;">Đang tải...</div>';
+        contentDiv.innerHTML = '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div>';
         try {
             const res = await fetch(`../controllers/get_medical_record.php?id=${recordId}`);
             const data = await res.json();
-            if (data.error) contentDiv.innerHTML = `<p style="color:red;">${data.error}</p>`;
+            if (data.error) contentDiv.innerHTML = `<div class="alert alert-error">${data.error}</div>`;
             else {
                 contentDiv.innerHTML = `
-                    <div class="mr-group"><span class="mr-label">Ngày:</span> ${data.ngay_tao}</div>
-                    <div class="mr-group"><span class="mr-label">Bác sĩ:</span> ${data.ten_bacsi}</div>
-                    <div class="mr-group"><span class="mr-label">Dịch vụ:</span> ${data.ten_dich_vu}</div>
-                    <div class="mr-group"><span class="mr-label">Chẩn đoán:</span> ${data.chan_doan}</div>
-                    <div class="mr-group" style="border:none;"><span class="mr-label">Ghi chú:</span> ${data.ghi_chu_bac_si}</div>`;
+                    <div class="record-detail">
+                        <div class="mr-group"><span class="mr-label">Ngày khám:</span> <span class="mr-value">${data.ngay_tao}</span></div>
+                        <div class="mr-group"><span class="mr-label">Bác sĩ khám:</span> <span class="mr-value">${data.ten_bacsi}</span></div>
+                        <div class="mr-group"><span class="mr-label">Dịch vụ:</span> <span class="mr-value">${data.ten_dich_vu}</span></div>
+                        
+                        <div class="mr-group" style="background:#e8f5e9; padding:10px; border-radius:5px; margin-top:10px; border: 1px solid #c8e6c9;">
+                            <span class="mr-label" style="color:#2e7d32;"><i class="fas fa-stethoscope"></i> Chẩn đoán / Kết quả:</span> 
+                            <div class="mr-value" style="font-weight:500; margin-top:5px;">${data.chan_doan}</div>
+                        </div>
+                        
+                        <div class="mr-group" style="background:#fff3e0; padding:10px; border-radius:5px; margin-top:10px; border: 1px solid #ffe0b2;">
+                            <span class="mr-label" style="color:#ef6c00;"><i class="fas fa-notes-medical"></i> Ghi chú / Đơn thuốc:</span> 
+                            <div class="mr-value" style="margin-top:5px;">${data.ghi_chu_bac_si || 'Không có ghi chú'}</div>
+                        </div>
+                    </div>`;
             }
-        } catch (e) { contentDiv.innerHTML = 'Lỗi kết nối!'; }
+        } catch (e) { contentDiv.innerHTML = '<div class="alert alert-error">Lỗi kết nối!</div>'; }
     }
 
     // --- LOGIC ĐẶT LỊCH ĐÃ SỬA ---

@@ -23,7 +23,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // Kiểm tra khớp mã
     else if ($user_otp == $stored_data['otp_code']) {
         try {
-            // INSERT VÀO CSDL
             $sql = "INSERT INTO benhnhan (sdt, mat_khau_hash, ten_day_du, email) VALUES (?, ?, ?, ?)";
             $stmt = $conn->prepare($sql);
             
@@ -33,7 +32,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $stored_data['ten_day_du'], 
                 $stored_data['email']
             ])) {
-                // Thành công -> Xóa session tạm -> Chuyển về đăng nhập
                 unset($_SESSION['temp_register']);
                 echo "<script>
                         alert('Đăng ký thành công! Vui lòng đăng nhập.'); 
@@ -68,7 +66,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <link rel="stylesheet" href="../assets/css/styles.css">
     
     <style>
-        /* CSS nội bộ cho form OTP đẹp hơn */
         :root { --primary: #0046AD; --bg: #F8FAFC; --shadow: 0 4px 15px rgba(0,0,0,0.05); }
         body { background-color: var(--bg); display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: 'Be Vietnam Pro', sans-serif; }
         .otp-box { background: white; padding: 40px; border-radius: 16px; box-shadow: var(--shadow); text-align: center; width: 100%; max-width: 420px; }

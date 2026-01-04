@@ -120,4 +120,21 @@ function sendAccountLockNotification($toEmail, $name) {
     ";
     return sendMailGeneric($toEmail, "⚠️ CẢNH BÁO: Tài khoản của bạn đã bị khóa - iDental", $body);
 }
+
+function sendLeaveStatusNotification($toEmail, $doctorName, $date, $shift, $status, $reason = '') {
+    $statusText = ($status == 'da_duyet') ? "<span style='color:green;font-weight:bold;'>ĐÃ ĐƯỢC DUYỆT</span>" : "<span style='color:red;font-weight:bold;'>ĐÃ BỊ TỪ CHỐI</span>";
+    $subject = ($status == 'da_duyet') ? "✅ Yêu cầu nghỉ phép được chấp thuận - iDental" : "❌ Yêu cầu nghỉ phép bị từ chối - iDental";
+    
+    $body = "
+        <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+            <h3>Xin chào Bác sĩ $doctorName,</h3>
+            <p>Yêu cầu nghỉ phép của bạn cho ngày <strong>$date</strong> (Ca: <strong>$shift</strong>) đã được xử lý.</p>
+            <p>Trạng thái: $statusText</p>
+            " . ($reason ? "<p>Lý do/Ghi chú: $reason</p>" : "") . "
+            <p>Vui lòng đăng nhập hệ thống để kiểm tra chi tiết.</p>
+            <p>Trân trọng,<br>Ban quản trị iDental.</p>
+        </div>
+    ";
+    return sendMailGeneric($toEmail, $subject, $body);
+}
 ?>

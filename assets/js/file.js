@@ -67,7 +67,6 @@ function closeMenuOutside(event) {
     }
 }
 
-// 4. Chạy khi load trang
 document.addEventListener("DOMContentLoaded", function() {
     setActiveMenu();
 });

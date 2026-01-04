@@ -1,5 +1,4 @@
 <?php
-// Lấy role từ URL, mặc định là patient nếu không có
 $role = isset($_GET['role']) ? $_GET['role'] : 'patient';
 $roleName = ($role == 'doctor') ? 'Bác sĩ' : 'Bệnh nhân';
 ?>

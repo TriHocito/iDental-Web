@@ -82,18 +82,13 @@ if (isset($_SESSION['user_id'])) {
 
     <script>
         function selectRole(role, btnElement) {
-            // 1. Cập nhật input hidden
             document.getElementById('selectedRole').value = role;
-            
-            // 2. Active nút được chọn
             document.querySelectorAll('.role-btn').forEach(btn => btn.classList.remove('active'));
             if(btnElement) {
                 btnElement.classList.add('active');
             } else {
                 document.querySelector(`.role-btn[onclick*="${role}"]`).classList.add('active');
             }
-            
-            // 3. Thay đổi giao diện Form
             const label = document.getElementById('loginLabel');
             const input = document.getElementById('username');
             const regSection = document.getElementById('registerSection');

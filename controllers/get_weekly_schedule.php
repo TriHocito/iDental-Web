@@ -36,14 +36,21 @@ $start_date = date('Y-m-d', $monday_timestamp);
 $end_date = date('Y-m-d', strtotime($start_date . ' +6 days'));
 
 // 1. Lấy Lịch Làm Việc (Work) -> set 'active'
-$stmt = $conn->prepare("SELECT * FROM lichlamviec WHERE id_bacsi = ? AND ngay_hieu_luc BETWEEN ? AND ?");
+$stmt = $conn->prepare("SELECT llv.*, gb.ten_giuong FROM lichlamviec llv JOIN giuongbenh gb ON llv.id_giuongbenh = gb.id_giuongbenh WHERE llv.id_bacsi = ? AND llv.ngay_hieu_luc BETWEEN ? AND ?");
 $stmt->execute([$doctor_id, $start_date, $end_date]);
 $shifts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 foreach ($shifts as $sch) {
     $day = date('N', strtotime($sch['ngay_hieu_luc']));
     $shift = (date('H', strtotime($sch['gio_bat_dau'])) < 12) ? 'Sang' : 'Chieu';
-    $schedule_map[$shift][$day] = 'active'; // Mặc định là đi làm
+    
+    $bed_name = $sch['ten_giuong'];
+    $bed_short = preg_replace('/Giường (số )?/', 'G', $bed_name);
+    
+    $schedule_map[$shift][$day] = [
+        'status' => 'active',
+        'bed' => $bed_short
+    ];
 }
 
 // 2. Lấy Lịch Nghỉ (Leave) -> set 'leave' (Ghi đè 'active' nếu trùng)

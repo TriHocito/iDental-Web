@@ -3,6 +3,18 @@
 let currentTab = 'pending';
 
 document.addEventListener("DOMContentLoaded", function() {
+    // Sidebar Toggle
+    const toggleBtn = document.querySelector('.toggle-sidebar-btn');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebarOverlay'); // Admin might not have overlay in HTML yet, but good to have logic
+
+    if (toggleBtn && sidebar) {
+        toggleBtn.addEventListener('click', function() {
+            sidebar.classList.toggle('show');
+            // Admin CSS uses transform, so 'show' class is correct based on CSS
+        });
+    }
+
     // Bind Filter Button
     document.getElementById('filterBtn')?.addEventListener('click', function() {
         loadAppts(currentTab, null);
@@ -204,7 +216,6 @@ function buildWeekPopup() {
     body.innerHTML = '';
     const today = new Date();
     const currentMonday = getMonday(today);
-    // Hiển thị 5 tuần trước và 5 tuần sau
     for (let i = -5; i <= 5; i++) {
         const monday = new Date(currentMonday.getTime() + i * 7 * 86400000);
         const sunday = new Date(monday.getTime() + 6 * 86400000);
@@ -325,7 +336,6 @@ async function handleBulkSchedule() {
         if (data.status === 'success') {
             alert(data.message || 'Đã thêm lịch làm việc');
             closeModal('bulkScheduleModal');
-            // Refresh schedule table with current range
             loadScheduleAjax(null);
         } else {
             alert(data.message || 'Không thể thêm lịch');

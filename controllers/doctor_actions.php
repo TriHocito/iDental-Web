@@ -327,4 +327,110 @@ if (isset($_POST['add_walkin'])) {
         echo "<script>alert('Đã tiếp nhận! Giờ khám dự kiến: ".date('H:i', $real_start)."'); window.location.href='../views/bacsi.php';</script>";
     } catch (Exception $e) { $conn->rollBack(); echo "Lỗi: " . $e->getMessage(); }
 }
+
+// ===========================================================================
+// XỬ LÝ ĐỔI LỊCH HẸN (RESCHEDULE)
+// ===========================================================================
+if ($action == 'reschedule_appointment') {
+    $id_lichhen = $_POST['id_lichhen'];
+    $new_date = $_POST['new_date'];
+    $new_shift = $_POST['new_shift']; // 'Sang' or 'Chieu'
+    $reason = $_POST['reason'];
+
+    // 1. Validate inputs
+    if (empty($id_lichhen) || empty($new_date) || empty($new_shift)) {
+        echo "<script>alert('Vui lòng điền đầy đủ thông tin!'); window.history.back();</script>";
+        exit();
+    }
+
+    // 2. Check ownership and get current details
+    $stmt_check = $conn->prepare("SELECT lh.*, bn.email, bn.ten_day_du, dv.ten_dich_vu, dv.thoi_gian_phut 
+                                  FROM lichhen lh 
+                                  JOIN benhnhan bn ON lh.id_benhnhan = bn.id_benhnhan
+                                  JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu
+                                  WHERE lh.id_lichhen = ? AND lh.id_bacsi = ?");
+    $stmt_check->execute([$id_lichhen, $doctor_id]);
+    $appt = $stmt_check->fetch(PDO::FETCH_ASSOC);
+
+    if (!$appt) {
+        echo "<script>alert('Không tìm thấy lịch hẹn!'); window.history.back();</script>";
+        exit();
+    }
+
+    // 3. Check Doctor's Schedule (Work Shift & Leave)
+    $start_shift_time = ($new_shift == 'Sang') ? '08:00:00' : '13:00:00';
+    $end_shift_time   = ($new_shift == 'Sang') ? '12:00:00' : '17:00:00';
+
+    // Check if doctor has a shift
+    $check_work = $conn->prepare("SELECT id_lichlamviec FROM lichlamviec WHERE id_bacsi = ? AND gio_bat_dau = ? AND ngay_hieu_luc = ?");
+    $check_work->execute([$doctor_id, $start_shift_time, $new_date]);
+
+    // Check if doctor is on leave
+    $check_leave = $conn->prepare("SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi = ? AND ngay_nghi = ? AND ca_nghi = ? AND trang_thai = 'da_duyet'");
+    $check_leave->execute([$doctor_id, $new_date, $new_shift]);
+
+    if ($check_work->rowCount() == 0) {
+        echo "<script>alert('Bạn không có lịch trực vào thời gian này!'); window.history.back();</script>";
+        exit();
+    }
+    if ($check_leave->rowCount() > 0) {
+        echo "<script>alert('Bạn đã xin nghỉ phép vào ca này!'); window.history.back();</script>";
+        exit();
+    }
+
+    // 4. Calculate Queue / Real Start Time
+    $sql_q = "SELECT COALESCE(SUM(dv.thoi_gian_phut), 0) 
+              FROM lichhen lh 
+              JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu 
+              WHERE lh.id_bacsi = ? 
+              AND DATE(lh.ngay_gio_hen) = ? 
+              AND lh.trang_thai IN ('da_xac_nhan', 'hoan_thanh')
+              AND TIME(lh.ngay_gio_hen) >= ? 
+              AND TIME(lh.ngay_gio_hen) < ?
+              AND lh.id_lichhen != ?"; 
+    
+    $st_q = $conn->prepare($sql_q);
+    $st_q->execute([$doctor_id, $new_date, $start_shift_time, $end_shift_time, $id_lichhen]);
+    $wait_minutes = (int)$st_q->fetchColumn();
+
+    $shift_start_timestamp = strtotime("$new_date $start_shift_time");
+    $real_start_timestamp = $shift_start_timestamp + ($wait_minutes * 60);
+    $final_dt = date('Y-m-d H:i:s', $real_start_timestamp);
+
+    // Check capacity
+    $shift_end_timestamp = strtotime("$new_date $end_shift_time");
+    if ($real_start_timestamp + ($appt['thoi_gian_phut'] * 60) > $shift_end_timestamp) {
+         echo "<script>alert('Ca làm việc này đã quá tải, không thể thêm lịch hẹn!'); window.history.back();</script>";
+         exit();
+    }
+
+    // 5. Update Database
+    try {
+        $conn->beginTransaction();
+        
+        $stmt_update = $conn->prepare("UPDATE lichhen SET ngay_gio_hen = ?, ghi_chu = CONCAT(COALESCE(ghi_chu, ''), ?), trang_thai = 'da_xac_nhan' WHERE id_lichhen = ?");
+        $note_update = " | Đổi lịch: " . $reason;
+        $stmt_update->execute([$final_dt, $note_update, $id_lichhen]);
+
+        // 6. Send Email Notification
+        if (!empty($appt['email'])) {
+            $subject = "Thông báo thay đổi lịch hẹn - Nha Khoa";
+            $body = "<h3>Xin chào {$appt['ten_day_du']},</h3>
+                     <p>Bác sĩ đã thay đổi lịch hẹn của bạn vì lý do: <strong>$reason</strong></p>
+                     <p><strong>Dịch vụ:</strong> {$appt['ten_dich_vu']}</p>
+                     <p><strong>Thời gian mới:</strong> " . date('H:i d/m/Y', strtotime($final_dt)) . "</p>
+                     <p>Vui lòng sắp xếp thời gian đến đúng giờ.</p>
+                     <p>Trân trọng,<br>Phòng khám Nha Khoa</p>";
+            
+            sendMailGeneric($appt['email'], $subject, $body);
+        }
+
+        $conn->commit();
+        echo "<script>alert('Đổi lịch thành công! Thời gian mới: " . date('H:i d/m/Y', strtotime($final_dt)) . "'); window.location.href='../views/bacsi.php';</script>";
+
+    } catch (Exception $e) {
+        $conn->rollBack();
+        echo "Lỗi: " . $e->getMessage();
+    }
+}
 ?>

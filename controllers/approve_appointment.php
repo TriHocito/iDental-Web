@@ -1,12 +1,9 @@
 <?php
-// controllers/approve_appointment.php
 session_start();
 
-// CẬP NHẬT ĐƯỜNG DẪN CONFIG & INCLUDES
 require '../config/db_connect.php';
 require '../includes/send_mail.php';
 
-// Chỉ Admin hoặc Bác sĩ mới được duyệt
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] !== 'admin' && $_SESSION['role'] !== 'doctor')) {
     die("Không có quyền truy cập.");
 }
@@ -15,7 +12,6 @@ if (isset($_GET['id'])) {
     $id_lichhen = $_GET['id'];
 
     try {
-        // [BỔ SUNG] Kiểm tra và tự động thêm lịch làm việc nếu chưa có
         $stmt_check = $conn->prepare("SELECT id_bacsi, ngay_gio_hen FROM lichhen WHERE id_lichhen = ?");
         $stmt_check->execute([$id_lichhen]);
         $appt = $stmt_check->fetch(PDO::FETCH_ASSOC);
@@ -41,16 +37,12 @@ if (isset($_GET['id'])) {
             $stmt_schedule->execute([$id_bacsi_appt, $ngay_hen, $gio_bat_dau]);
 
             if ($stmt_schedule->rowCount() == 0) {
-                // Chưa có lịch -> Cần tạo lịch mới
                 
-                // [RÀNG BUỘC] Chỉ Admin mới được duyệt trường hợp này
                 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
                     echo "<script>alert('Lịch hẹn này nằm trong ngày bác sĩ chưa có lịch làm việc. Chỉ Admin mới có quyền duyệt và tạo lịch làm việc mới.'); window.history.back();</script>";
                     exit();
                 }
 
-                // Tự động thêm lịch
-                // Lấy ghế đầu tiên
                 $stmt_chair = $conn->query("SELECT id_giuongbenh FROM giuongbenh LIMIT 1");
                 $id_giuong = $stmt_chair->fetchColumn();
 
@@ -75,8 +67,6 @@ if (isset($_GET['id'])) {
         // 1. Cập nhật trạng thái
         $stmt = $conn->prepare("UPDATE lichhen SET trang_thai = 'da_xac_nhan' WHERE id_lichhen = ?");
         if ($stmt->execute([$id_lichhen])) {
-            
-            // 2. Lấy thông tin để gửi mail
             $sql_info = "SELECT lh.ngay_gio_hen, bn.ten_day_du, bn.email, bs.ten_day_du AS ten_bacsi, dv.ten_dich_vu 
                          FROM lichhen lh
                          JOIN benhnhan bn ON lh.id_benhnhan = bn.id_benhnhan

@@ -33,11 +33,7 @@ if (isset($_GET['id'])) {
         $day_num = $sch['ngay_trong_tuan'];
         $hour = date('H', strtotime($sch['gio_bat_dau']));
         $shift = ($hour < 12) ? 'Sang' : 'Chieu';
-        
-        // Tạo chuỗi text hiển thị (VD: Thứ 2 (Sáng))
         $text_arr[] = $days_map[$day_num] . " (" . $shift . ")";
-        
-        // Lưu dữ liệu logic để JS so sánh
         $valid_slots[] = [
             'day' => $day_num,      
             'shift' => $shift       

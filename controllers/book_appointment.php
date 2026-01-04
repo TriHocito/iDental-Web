@@ -22,7 +22,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             exit();
         }
 
-        // [BỔ SUNG] KIỂM TRA TRẠNG THÁI BÁC SĨ (CHẶN NẾU BỊ KHÓA)
+        //  KIỂM TRA TRẠNG THÁI BÁC SĨ (CHẶN NẾU BỊ KHÓA)
         $stmt_doc_status = $conn->prepare("SELECT trang_thai FROM bacsi WHERE id_bacsi = ?");
         $stmt_doc_status->execute([$id_bacsi]);
         if ($stmt_doc_status->fetchColumn() == 0) {
