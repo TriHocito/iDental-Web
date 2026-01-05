@@ -137,4 +137,39 @@ function sendLeaveStatusNotification($toEmail, $doctorName, $date, $shift, $stat
     ";
     return sendMailGeneric($toEmail, $subject, $body);
 }
-?>
+
+function sendSwitchDoctorNotification($toEmail, $patientName, $dateStr, $oldDoctorName, $newDoctorName) {
+    $body = "
+        <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+            <h3>Xin chào $patientName,</h3>
+            <p>Chúng tôi xin thông báo về sự thay đổi trong lịch hẹn khám của bạn vào lúc: <strong>$dateStr</strong>.</p>
+            <div style='background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 20px 0;'>
+                <p>Do lý do công tác đột xuất, bác sĩ <strong>$oldDoctorName</strong> sẽ không thể trực tiếp thăm khám.</p>
+                <p>Lịch hẹn của bạn đã được chuyển sang cho bác sĩ: <strong style='color: #0d47a1; font-size: 1.1em;'>$newDoctorName</strong></p>
+            </div>
+            <p>Thời gian và địa điểm khám vẫn giữ nguyên. Bạn không cần phải thao tác gì thêm.</p>
+            <p>Nha khoa iDental xin lỗi vì sự bất tiện này và cảm ơn sự thông cảm của bạn.</p>
+        </div>
+    ";
+    return sendMailGeneric($toEmail, "ℹ️ THÔNG BÁO: Thay đổi bác sĩ phụ trách - iDental", $body);
+}
+
+function sendRescheduleNotification($toEmail, $patientName, $oldDate, $newDate, $doctorName, $reason) {
+    $body = "
+        <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+            <h3>Xin chào $patientName,</h3>
+            <p>Lịch hẹn khám của bạn đã được thay đổi theo yêu cầu hoặc do điều chỉnh từ phòng khám.</p>
+            
+            <div style='background: #fff3e0; padding: 15px; border-radius: 5px; border-left: 4px solid #ff9800; margin: 20px 0;'>
+                <p><strong>Lịch cũ:</strong> <strike>$oldDate</strike></p>
+                <p><strong>Lịch mới:</strong> <span style='color: #d32f2f; font-weight: bold; font-size: 1.1em;'>$newDate</span></p>
+                <p><strong>Bác sĩ:</strong> $doctorName</p>
+                " . ($reason ? "<p><strong>Lý do thay đổi:</strong> $reason</p>" : "") . "
+            </div>
+            
+            <p>Vui lòng sắp xếp thời gian đến đúng giờ.</p>
+            <p>Trân trọng,<br>Ban quản trị iDental.</p>
+        </div>
+    ";
+    return sendMailGeneric($toEmail, "📅 THÔNG BÁO: Thay đổi thời gian lịch hẹn - iDental", $body);
+}

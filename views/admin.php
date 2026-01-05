@@ -122,6 +122,7 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                 <?php if($pending_appts_count > 0): ?><span class="badge bg-danger"><?php echo $pending_appts_count; ?></span><?php endif; ?>
             </a>
             <a class="menu-link" onclick="showSection('doctors')"><i class="fas fa-user-md"></i> Bác Sĩ</a>
+            <a class="menu-link" onclick="showSection('patients')"><i class="fas fa-users"></i> Bệnh Nhân</a>
             <a class="menu-link" onclick="showSection('admins')"><i class="fas fa-user-shield"></i> Quản Trị Viên</a>
             <a class="menu-link" onclick="showSection('requests')">
                 <i class="fas fa-exclamation-circle"></i> Xử Lý
@@ -258,6 +259,42 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                         </div>
                     </div>
                     <?php endforeach; ?>
+                </div>
+            </div>
+
+            <div id="patients" class="content-section">
+                <h2>Quản Lý Bệnh Nhân</h2>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead><tr><th>ID</th><th>Họ Tên</th><th>SĐT</th><th>Email</th><th>Trạng thái</th><th>Tác vụ</th></tr></thead>
+                        <tbody>
+                            <?php foreach($patients as $p): 
+                                $status = isset($p['trang_thai']) ? $p['trang_thai'] : 1;
+                            ?>
+                            <tr>
+                                <td>#<?php echo $p['id_benhnhan']; ?></td>
+                                <td><?php echo htmlspecialchars($p['ten_day_du']); ?></td>
+                                <td><?php echo htmlspecialchars($p['sdt']); ?></td>
+                                <td><?php echo htmlspecialchars($p['email']); ?></td>
+                                <td>
+                                    <?php if($status == 1): ?>
+                                        <span class="status-badge bg-confirmed">Hoạt động</span>
+                                    <?php else: ?>
+                                        <span class="status-badge bg-cancelled">Đã khóa</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <button class="btn-icon text-primary" onclick="viewPatientHistory(<?php echo $p['id_benhnhan']; ?>)" title="Xem lịch sử"><i class="fas fa-history"></i></button>
+                                    <?php if($status == 1): ?>
+                                        <button class="btn-icon text-danger" onclick="togglePatientStatus(<?php echo $p['id_benhnhan']; ?>, 0)" title="Khóa tài khoản"><i class="fas fa-lock"></i></button>
+                                    <?php else: ?>
+                                        <button class="btn-icon text-success" onclick="togglePatientStatus(<?php echo $p['id_benhnhan']; ?>, 1)" title="Mở khóa"><i class="fas fa-unlock"></i></button>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -606,11 +643,12 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
             
             <div class="form-group">
                 <label>Chọn Bác sĩ thay thế:</label>
-                <select name="new_doctor_id" id="switchNewDoctor" class="form-control" required>
+                <select name="new_doctor_id" id="switchNewDoctor" class="form-control" required onchange="updateSwitchSummary()">
                     <option value="">-- Đang tải danh sách... --</option>
                 </select>
                 <small class="text-muted" id="switchDocMsg"></small>
             </div>
+            <div id="switchSummary" style="margin-top: 15px;"></div>
             <button class="btn btn-primary" style="width:100%" id="btnSwitchDoc" disabled>Lưu Thay Đổi</button>
         </form>
     </div>
@@ -655,12 +693,7 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
     </div>
 </div>
 
-<div id="patientHistoryModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header"><h3 id="histPatName">Lịch sử</h3><span class="close-btn" onclick="closeModal('patientHistoryModal')">&times;</span></div>
-        <div class="modal-body"><table class="data-table"><thead><tr><th>Ngày giờ</th><th>Dịch vụ</th><th>Trạng thái</th></tr></thead><tbody id="histBody"></tbody></table></div>
-    </div>
-</div>
+
 
 <div id="rescheduleModal" class="modal">
     <div class="modal-content">
@@ -886,6 +919,7 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
     function openSwitchDoctorModal(apptId, patientName, datetime, currentDocId) {
         document.getElementById('switchApptId').value = apptId;
         document.getElementById('switchPatientName').innerText = patientName;
+        document.getElementById('switchSummary').innerHTML = ''; // Reset summary
         
         const dateObj = new Date(datetime);
         const dateStr = dateObj.toISOString().split('T')[0];
@@ -921,6 +955,7 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
                     const opt = document.createElement('option');
                     opt.value = d.id_bacsi;
                     opt.textContent = `${d.ten_day_du} - ${d.chuyen_khoa}${statusText}`;
+                    opt.setAttribute('data-name', d.ten_day_du); // Store name for summary
                     
                     // Highlight doctors who are already working
                     if (d.has_schedule) {
@@ -943,6 +978,27 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
         });
     }
 
+    function updateSwitchSummary() {
+        const select = document.getElementById('switchNewDoctor');
+        const summary = document.getElementById('switchSummary');
+        const time = document.getElementById('switchApptTime').innerText;
+        
+        if (select.value) {
+            const selectedOption = select.options[select.selectedIndex];
+            const docName = selectedOption.getAttribute('data-name') || selectedOption.text.split(' - ')[0];
+            
+            summary.innerHTML = `
+                <div class="alert alert-info" style="background-color: #e3f2fd; color: #0d47a1; padding: 10px; border-radius: 5px; border: 1px solid #90caf9;">
+                    <i class="fas fa-info-circle"></i> <strong>Xác nhận chuyển lịch:</strong><br>
+                    Lịch hẹn này sẽ được chuyển sang cho <strong>Bác sĩ ${docName}</strong><br>
+                    Thời gian: <strong>${time}</strong>
+                </div>
+            `;
+        } else {
+            summary.innerHTML = '';
+        }
+    }
+
     function onWeekChange(select) {
         const parts = select.value.split('|');
         if(parts.length === 2) {
@@ -960,6 +1016,110 @@ $schedule_requests = file_exists($req_file) ? json_decode(file_get_contents($req
             showSection(sec);
         }
     });
+</script>
+<!-- Patient History Modal -->
+<div id="patientHistoryModal" class="modal">
+    <div class="modal-content" style="width: auto; max-width: 95%; min-width: 600px;">
+        <div class="modal-header">
+            <h2>Lịch sử khám bệnh</h2>
+            <span class="close" onclick="closeModal('patientHistoryModal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="table-container" style="max-height: 70vh; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 140px;">Ngày khám</th>
+                            <th style="width: 140px;">Bác sĩ</th>
+                            <th style="width: 140px;">Dịch vụ</th>
+                            <th style="width: 100px;">Trạng thái</th>
+                            <th>Chẩn đoán</th>
+                            <th>Ghi chú</th>
+                        </tr>
+                    </thead>
+                    <tbody id="patientHistoryBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function togglePatientStatus(id, status) {
+    if(!confirm(status == 0 ? 'Bạn có chắc muốn khóa tài khoản này?' : 'Mở khóa tài khoản này?')) return;
+    
+    const formData = new FormData();
+    formData.append('id', id);
+    formData.append('status', status);
+    
+    fetch('../controllers/admin_actions.php?action=toggle_patient_status', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === 'success') {
+            alert('Cập nhật thành công!');
+            location.reload();
+        } else {
+            alert('Có lỗi xảy ra');
+        }
+    });
+}
+
+function viewPatientHistory(id) {
+    // Add timestamp to prevent caching
+    fetch(`../controllers/admin_actions.php?action=get_patient_history&id=${id}&t=${new Date().getTime()}`)
+    .then(res => res.text()) // Read as text first to debug
+    .then(text => {
+        try {
+            const data = JSON.parse(text);
+            const tbody = document.getElementById('patientHistoryBody');
+            tbody.innerHTML = '';
+            
+            if (!Array.isArray(data) || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 20px;">Chưa có lịch sử khám</td></tr>';
+            } else {
+                data.forEach(row => {
+                    let statusBadge = '';
+                    if(row.trang_thai == 'cho_xac_nhan') statusBadge = '<span class="status-badge bg-pending">Chờ duyệt</span>';
+                    else if(row.trang_thai == 'da_xac_nhan') statusBadge = '<span class="status-badge bg-confirmed">Đã xác nhận</span>';
+                    else if(row.trang_thai == 'hoan_thanh') statusBadge = '<span class="status-badge bg-success" style="background:#e8f5e9; color:#2e7d32">Hoàn thành</span>';
+                    else if(row.trang_thai == 'huy') statusBadge = '<span class="status-badge bg-cancelled">Đã hủy</span>';
+                    
+                    // Safe date parsing
+                    let dateStr = row.ngay_gio_hen;
+                    try {
+                        const d = new Date(row.ngay_gio_hen);
+                        if (!isNaN(d.getTime())) {
+                            dateStr = d.toLocaleString('vi-VN');
+                        }
+                    } catch(e) {}
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${dateStr}</td>
+                            <td>${row.ten_bs || '-'}</td>
+                            <td>${row.ten_dich_vu || '-'}</td>
+                            <td>${statusBadge}</td>
+                            <td style="white-space: pre-wrap; max-width: 250px;">${row.chan_doan || '-'}</td>
+                            <td style="white-space: pre-wrap; max-width: 250px;">${row.ghi_chu_bac_si || '-'}</td>
+                        </tr>
+                    `;
+                });
+            }
+            openModal('patientHistoryModal');
+        } catch (e) {
+            console.error("JSON Parse Error:", e);
+            console.log("Raw response:", text);
+            alert("Lỗi tải dữ liệu: " + text.substring(0, 100));
+        }
+    })
+    .catch(err => {
+        console.error("Fetch Error:", err);
+        alert("Lỗi kết nối server");
+    });
+}
 </script>
 </body>
 </html>

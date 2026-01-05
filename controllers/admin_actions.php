@@ -120,6 +120,38 @@ try {
         exit();
     }
 
+    if ($action == 'toggle_patient_status') {
+        ob_clean();
+        header('Content-Type: application/json');
+        $id = $_POST['id'] ?? 0;
+        $status = $_POST['status'] ?? 1; // 1: Active, 0: Locked
+        
+        $stmt = $conn->prepare("UPDATE benhnhan SET trang_thai = ? WHERE id_benhnhan = ?");
+        $stmt->execute([$status, $id]);
+        
+        echo json_encode(['status' => 'success']);
+        exit();
+    }
+
+    if ($action == 'get_patient_history') {
+        ob_clean(); // Clear buffer to ensure clean JSON
+        header('Content-Type: application/json');
+        $id = $_GET['id'] ?? 0;
+        
+        $sql = "SELECT lh.*, bs.ten_day_du as ten_bs, dv.ten_dich_vu, ba.chan_doan, ba.ghi_chu_bac_si 
+                FROM lichhen lh 
+                LEFT JOIN bacsi bs ON lh.id_bacsi = bs.id_bacsi 
+                LEFT JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu 
+                LEFT JOIN benhan ba ON lh.id_lichhen = ba.id_lichhen
+                WHERE lh.id_benhnhan = ? 
+                ORDER BY lh.ngay_gio_hen DESC";
+        
+        $stmt = $conn->prepare($sql);
+        $stmt->execute([$id]);
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+        exit();
+    }
+
     // A3b. Lấy lịch làm việc (AJAX cho admin)
     if ($action == 'get_schedule_admin') {
         header('Content-Type: application/json');
@@ -240,13 +272,7 @@ try {
         exit();
     }
 
-    if ($action == 'get_patient_history') { 
-        header('Content-Type: application/json'); 
-        $stmt = $conn->prepare("SELECT lh.ngay_gio_hen, lh.trang_thai, dv.ten_dich_vu, bs.ten_day_du AS ten_bs FROM lichhen lh LEFT JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu LEFT JOIN bacsi bs ON lh.id_bacsi = bs.id_bacsi WHERE lh.id_benhnhan = ? ORDER BY lh.ngay_gio_hen DESC"); 
-        $stmt->execute([$_GET['id']]); 
-        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC)); 
-        exit(); 
-    }
+
 
     if ($action == 'check_leave_conflicts') {
         header('Content-Type: application/json');
@@ -599,7 +625,11 @@ try {
 
             $conn->beginTransaction();
 
-            $appt = $conn->query("SELECT ngay_gio_hen FROM lichhen WHERE id_lichhen = $id_lichhen")->fetch();
+            $appt = $conn->query("SELECT lh.ngay_gio_hen, bn.email, bn.ten_day_du, bs.ten_day_du as old_doc_name 
+                                  FROM lichhen lh 
+                                  JOIN benhnhan bn ON lh.id_benhnhan = bn.id_benhnhan 
+                                  JOIN bacsi bs ON lh.id_bacsi = bs.id_bacsi 
+                                  WHERE lh.id_lichhen = $id_lichhen")->fetch();
             $date = date('Y-m-d', strtotime($appt['ngay_gio_hen']));
             $hour = (int)date('H', strtotime($appt['ngay_gio_hen']));
             
@@ -625,8 +655,98 @@ try {
 
             $conn->prepare("UPDATE lichhen SET id_bacsi=?, trang_thai='da_xac_nhan' WHERE id_lichhen=?")->execute([$new_doc_id, $id_lichhen]);
             
+            $new_doc_name = $conn->query("SELECT ten_day_du FROM bacsi WHERE id_bacsi=$new_doc_id")->fetchColumn();
+            if ($appt['email']) {
+                sendSwitchDoctorNotification($appt['email'], $appt['ten_day_du'], date('H:i d/m/Y', strtotime($appt['ngay_gio_hen'])), $appt['old_doc_name'], $new_doc_name);
+            }
+
             $conn->commit();
             echo "<script>alert('Đã chuyển bác sĩ thành công!'); location.href='../views/admin.php#requests';</script>";
+
+        } catch (Throwable $e) {
+            $conn->rollBack();
+            echo "<script>alert('Lỗi: ".$e->getMessage()."'); window.history.back();</script>";
+        }
+    }
+
+    elseif ($action == 'reschedule_appointment_admin') {
+        $id_lichhen = $_POST['id_lichhen'];
+        $new_date = $_POST['new_date'];
+        $new_shift = $_POST['new_shift'];
+        $reason = $_POST['reason'];
+
+        try {
+            $conn->beginTransaction();
+
+            // Get current info
+            $appt = $conn->query("SELECT lh.*, bn.email, bn.ten_day_du, bs.ten_day_du as ten_bs, dv.thoi_gian_phut 
+                                  FROM lichhen lh 
+                                  JOIN benhnhan bn ON lh.id_benhnhan = bn.id_benhnhan 
+                                  JOIN bacsi bs ON lh.id_bacsi = bs.id_bacsi 
+                                  JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu 
+                                  WHERE lh.id_lichhen = $id_lichhen")->fetch();
+            
+            $id_bs = $appt['id_bacsi'];
+            $old_date_str = date('H:i d/m/Y', strtotime($appt['ngay_gio_hen']));
+
+            // Check doctor availability
+            $chkL = $conn->prepare("SELECT id_yeucau FROM yeucaunghi WHERE id_bacsi=? AND ngay_nghi=? AND ca_nghi=? AND trang_thai='da_duyet'");
+            $chkL->execute([$id_bs, $new_date, $new_shift]);
+            if($chkL->rowCount() > 0) throw new Exception("Bác sĩ đã nghỉ phép vào ca mới này!");
+
+            $start = ($new_shift == 'Sang') ? '08:00:00' : '13:00:00';
+            $end   = ($new_shift == 'Sang') ? '12:00:00' : '17:00:00';
+
+            // Check/Create Schedule
+            $chkW = $conn->prepare("SELECT id_lichlamviec FROM lichlamviec WHERE id_bacsi=? AND gio_bat_dau=? AND ngay_hieu_luc=?");
+            $chkW->execute([$id_bs, $start, $new_date]);
+            
+            if($chkW->rowCount() == 0) {
+                $bed = getAvailableBed($conn, $new_date, $start, $end);
+                if(!$bed) throw new Exception("Hết giường trống trong ca mới này!");
+                
+                $day_of_week = date('N', strtotime($new_date));
+                $conn->prepare("INSERT INTO lichlamviec (id_bacsi, id_giuongbenh, id_quantrivien_tao, ngay_trong_tuan, gio_bat_dau, gio_ket_thuc, ngay_hieu_luc) VALUES (?,?,?,?,?,?,?)")
+                     ->execute([$id_bs, $bed, $id_quantrivien, $day_of_week, $start, $end, $new_date]);
+            }
+
+            // Calculate new time
+            $sql_queue = "SELECT COALESCE(SUM(dv.thoi_gian_phut), 0) as total_minutes 
+                          FROM lichhen lh 
+                          JOIN dichvu dv ON lh.id_dichvu = dv.id_dichvu
+                          WHERE lh.id_bacsi = ? 
+                          AND DATE(lh.ngay_gio_hen) = ? 
+                          AND lh.trang_thai IN ('da_xac_nhan', 'hoan_thanh')
+                          AND TIME(lh.ngay_gio_hen) >= ? AND TIME(lh.ngay_gio_hen) < ?
+                          AND lh.id_lichhen != ?"; // Exclude itself
+            
+            $stmt_queue = $conn->prepare($sql_queue);
+            $stmt_queue->execute([$id_bs, $new_date, $start, $end, $id_lichhen]);
+            $waiting_minutes = (int)$stmt_queue->fetch(PDO::FETCH_ASSOC)['total_minutes'];
+            
+            $start_anchor = strtotime("$new_date $start");
+            if ($new_date == date('Y-m-d') && time() > $start_anchor) {
+                $start_anchor = max($start_anchor, time() + 900); 
+            }
+            
+            $real_start_time = $start_anchor + ($waiting_minutes * 60);
+            
+            if (($real_start_time + ($appt['thoi_gian_phut'] * 60)) > strtotime("$new_date $end")) {
+                throw new Exception("Ca làm việc mới đã kín, không thể dời vào đây!");
+            }
+
+            $final_datetime = date('Y-m-d H:i:s', $real_start_time);
+
+            // Update
+            $conn->prepare("UPDATE lichhen SET ngay_gio_hen=?, trang_thai='da_xac_nhan' WHERE id_lichhen=?")->execute([$final_datetime, $id_lichhen]);
+
+            // Send Email
+            if ($appt['email']) {
+                sendRescheduleNotification($appt['email'], $appt['ten_day_du'], $old_date_str, date('H:i d/m/Y', $real_start_time), $appt['ten_bs'], $reason);
+            }
+
+            $conn->commit();
+            echo "<script>alert('Đổi lịch thành công! Giờ mới: ".date('H:i d/m', $real_start_time)."'); location.href='../views/admin.php#requests';</script>";
 
         } catch (Throwable $e) {
             $conn->rollBack();

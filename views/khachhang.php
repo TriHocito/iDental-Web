@@ -16,6 +16,12 @@ if (!$user) {
     header("Location: ../controllers/logout.php"); exit(); 
 }
 
+// Check if account is locked
+if (isset($user['trang_thai']) && $user['trang_thai'] == 0) {
+    echo "<script>alert('Tài khoản của bạn đã bị khóa!'); window.location.href='../controllers/logout.php';</script>";
+    exit();
+}
+
 // 3. Lấy dữ liệu cho Modal Đặt lịch
 $services = $conn->query("SELECT * FROM dichvu")->fetchAll(PDO::FETCH_ASSOC);
 // [CẬP NHẬT] Chỉ lấy bác sĩ đang hoạt động
